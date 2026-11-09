@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'se.tvhome.launcher'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'se.tvhome.launcher'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+    }
+
+    // One fixed key, kept in the repo, so every build can be installed over the
+    // previous one without uninstalling. This is a personal, sideloaded app.
+    signingConfigs {
+        personal {
+            storeFile file('tvhome.jks')
+            storePassword 'tvhome-personal'
+            keyAlias 'tvhome'
+            keyPassword 'tvhome-personal'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.personal
+        }
+        debug {
+            signingConfig signingConfigs.personal
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

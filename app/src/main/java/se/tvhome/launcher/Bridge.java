@@ -1,0 +1,193 @@
+package se.tvhome.launcher;
+
+import android.content.Intent;
+import android.media.tv.TvContract;
+import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.net.URISyntaxException;
+
+/** Everything the interface can ask the TV to do. Exposed to the page as {@code Native}. */
+final class Bridge {
+
+    private final MainActivity activity;
+    private final MediaWatcher media;
+    private String pendingView;
+
+    Bridge(MainActivity activity, MediaWatcher media) {
+        this.activity = activity;
+        this.media = media;
+    }
+
+    synchronized void setPendingView(String view) {
+        pendingView = view;
+    }
+
+    /** The screen the app was asked to open with (for example "player"), reported once. */
+    @JavascriptInterface
+    public synchronized String takePendingView() {
+        String view = pendingView == null ? "" : pendingView;
+        pendingView = null;
+        return view;
+    }
+
+    @JavascriptInterface
+    public String getApps() {
+        return Apps.list(activity).toString();
+    }
+
+    @JavascriptInterface
+    public boolean launch(String pkg) {
+        Intent intent = Apps.launchIntent(activity.getPackageManager(), pkg);
+        if (intent == null) {
+            return false;
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (Foreground.isSpotify(pkg)) {
+            Foreground.spotifyOpenedFromTile = true;
+        }
+        return start(intent);
+    }
+
+    @JavascriptInterface
+    public String getNowPlaying() {
+        return media.snapshot();
+    }
+
+    @JavascriptInterface
+    public void media(String command, String argument) {
+        long value = 0;
+        try {
+            value = argument == null || argument.isEmpty() ? 0 : (long) Double.parseDouble(argument);
+        } catch (NumberFormatException ignored) {
+            value = 0;
+        }
+        media.command(command, value);
+    }
+
+    /** "off", "track" (pause when the current track ends) or a number of minutes. */
+    @JavascriptInterface
+    public void setSleep(String mode) {
+        media.setSleep(mode == null ? "off" : mode);
+    }
+
+    @JavascriptInterface
+    public String getWatchNext() {
+        return TvData.watchNext(activity).toString();
+    }
+
+    @JavascriptInterface
+    public String getPreviews() {
+        return TvData.previews(activity).toString();
+    }
+
+    /** Opens an entry another app published, using the link that app supplied for it. */
+    @JavascriptInterface
+    public boolean openIntent(String uri, String pkg) {
+        if (uri == null || uri.isEmpty()) {
+            return false;
+        }
+        try {
+            Intent intent = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (intent.getComponent() == null && intent.getPackage() == null
+                    && pkg != null && !pkg.isEmpty()) {
+                Intent scoped = new Intent(intent).setPackage(pkg);
+                if (scoped.resolveActivity(activity.getPackageManager()) != null) {
+                    intent = scoped;
+                }
+            }
+            if (start(intent)) {
+                return true;
+            }
+        } catch (URISyntaxException | RuntimeException ignored) {
+            // Fall through to opening the app itself.
+        }
+        return pkg != null && !pkg.isEmpty() && launch(pkg);
+    }
+
+    @JavascriptInterface
+    public String getInputs() {
+        return TvData.inputs(activity).toString();
+    }
+
+    @JavascriptInterface
+    public boolean openInput(String id) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(id));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return start(intent);
+    }
+
+    @JavascriptInterface
+    public boolean openSettings(String which) {
+        Intent intent;
+        if ("accessibility".equals(which)) {
+            intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+        } else if ("notifications".equals(which)) {
+            intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+        } else if ("app".equals(which)) {
+            intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", activity.getPackageName(), null));
+        } else {
+            intent = new Intent(Settings.ACTION_SETTINGS);
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return start(intent);
+    }
+
+    @JavascriptInterface
+    public String getStatus() {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("nowPlayingAccess", media.hasAccess());
+            o.put("homeButton", HomeKeyService.isEnabled(activity));
+            o.put("tvListings", TvData.allowed(activity));
+            o.put("version", activity.getPackageManager()
+                    .getPackageInfo(activity.getPackageName(), 0).versionName);
+            o.put("pkg", activity.getPackageName());
+            o.put("device", Build.MANUFACTURER + " " + Build.MODEL);
+            o.put("android", Build.VERSION.RELEASE);
+        } catch (JSONException | android.content.pm.PackageManager.NameNotFoundException e) {
+            return "{}";
+        }
+        return o.toString();
+    }
+
+    @JavascriptInterface
+    public void requestTvListings() {
+        activity.runOnUiThread(() -> activity.requestPermissions(
+                new String[]{TvData.PERMISSION, TvData.LEGACY_PERMISSION}, MainActivity.REQUEST_TV_LISTINGS));
+    }
+
+    @JavascriptInterface
+    public void setPref(String key, String value) {
+        App.prefs(activity).edit().putString(key, value).apply();
+    }
+
+    /** Keeps the TV's own screensaver away while music is on screen. */
+    @JavascriptInterface
+    public void keepAwake(final boolean on) {
+        activity.runOnUiThread(() -> {
+            if (on) {
+                activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+        });
+    }
+
+    private boolean start(Intent intent) {
+        try {
+            activity.startActivity(intent);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+}

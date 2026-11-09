@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The 16:9 tile this app shows in other home screens' app lists: a record sliding out of its sleeve. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#1A1613" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#0E0C0A" android:pathData="M192,90m-58,0a58,58 0 1,0 116,0a58,58 0 1,0 -116,0" />
+    <path android:fillColor="#D9A441" android:pathData="M192,90m-20,0a20,20 0 1,0 40,0a20,20 0 1,0 -40,0" />
+    <path android:fillColor="#0E0C0A" android:pathData="M192,90m-3,0a3,3 0 1,0 6,0a3,3 0 1,0 -6,0" />
+    <path android:fillColor="#23324F" android:pathData="M70,32h116v116h-116z" />
+    <path android:fillColor="#E9E1CF" android:pathData="M140,74m-26,0a26,26 0 1,0 52,0a26,26 0 1,0 -52,0" />
+    <path android:fillColor="#E3A08C" android:pathData="M70,108h116v7h-116z" />
+    <path android:fillColor="#C8553D" android:pathData="M70,115h116v33h-116z" />
+</vector>

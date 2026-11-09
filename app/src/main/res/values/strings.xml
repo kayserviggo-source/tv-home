@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TV Home</string>
+    <string name="now_playing_service">TV Home: now playing</string>
+    <string name="home_service">TV Home: Home button</string>
+    <string name="home_service_desc">Opens TV Home when you press the Home button on the remote. It only looks at the Home button and at which app is in front; it does not read screen content.</string>
+</resources>
