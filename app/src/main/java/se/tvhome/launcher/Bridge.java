@@ -146,14 +146,100 @@ final class Bridge {
         Updater.get(activity).install();
     }
 
+    /*
+     * What other apps share for Home is read in the background and kept here. Reading it is a
+     * database query per app, which used to hold up the interface (and the remote) while it ran.
+     */
+    private static final java.util.concurrent.ExecutorService CONTENT =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private volatile String watchNextJson = "[]";
+    private volatile String previewsJson = "[]";
+    private volatile long contentAt;
+    private final java.util.concurrent.atomic.AtomicBoolean reading = new java.util.concurrent.atomic.AtomicBoolean();
+
     @JavascriptInterface
     public String getWatchNext() {
-        return TvData.watchNext(activity).toString();
+        return watchNextJson;
     }
 
     @JavascriptInterface
     public String getPreviews() {
-        return TvData.previews(activity).toString();
+        return previewsJson;
+    }
+
+    /** Reads again unless that was done in the last half minute; tells the page if anything changed. */
+    @JavascriptInterface
+    public void refreshContent() {
+        refreshContent(false);
+    }
+
+    void refreshContent(boolean force) {
+        if (!force && System.currentTimeMillis() - contentAt < 30 * 1000) {
+            return;
+        }
+        if (!reading.compareAndSet(false, true)) {
+            return;
+        }
+        CONTENT.execute(() -> {
+            try {
+                String next = TvData.allowed(activity) ? TvData.watchNext(activity).toString() : "[]";
+                String previews = TvData.allowed(activity) ? TvData.previews(activity).toString() : "[]";
+                boolean changed = !next.equals(watchNextJson) || !previews.equals(previewsJson);
+                watchNextJson = next;
+                previewsJson = previews;
+                contentAt = System.currentTimeMillis();
+                if (changed) {
+                    activity.emit("content", "");
+                }
+            } catch (RuntimeException ignored) {
+                // Keep what was read before.
+            } finally {
+                reading.set(false);
+            }
+        });
+    }
+
+    /**
+     * Opens a Spotify link (spotify:playlist:..., or an open.spotify.com address) in the Spotify
+     * app, falling back to just opening the app.
+     */
+    @JavascriptInterface
+    public boolean openSpotify(String link) {
+        String pkg = null;
+        for (String candidate : new String[]{"com.spotify.tv.android", "com.spotify.music"}) {
+            if (Apps.launchIntent(activity.getPackageManager(), candidate) != null) {
+                pkg = candidate;
+                break;
+            }
+        }
+        if (pkg == null) {
+            return false;
+        }
+        Foreground.spotifyOpenedFromTile = true;
+        if (link != null && !link.isEmpty()) {
+            String uri = link;
+            String web = link;
+            // spotify:playlist:ID and https://open.spotify.com/playlist/ID name the same thing.
+            if (link.startsWith("https://open.spotify.com/")) {
+                String[] parts = Uri.parse(link).getPathSegments().toArray(new String[0]);
+                if (parts.length >= 2) {
+                    uri = "spotify:" + parts[parts.length - 2] + ":" + parts[parts.length - 1];
+                }
+            } else if (link.startsWith("spotify:")) {
+                String[] parts = link.split(":");
+                if (parts.length >= 3) {
+                    web = "https://open.spotify.com/" + parts[1] + "/" + parts[2];
+                }
+            }
+            for (String address : new String[]{uri, web}) {
+                Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(address)).setPackage(pkg);
+                view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (view.resolveActivity(activity.getPackageManager()) != null && start(view)) {
+                    return true;
+                }
+            }
+        }
+        return launch(pkg);
     }
 
     /** Opens an entry another app published, using the link that app supplied for it. */

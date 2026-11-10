@@ -48,7 +48,8 @@
     source: sonos ? 'sonos' : 'tv', room: sonos ? 'Vardagsrum' : '',
     pkg: 'com.spotify.tv.android', app: 'Spotify',
     title: param('title', 'Vinterhav'), artist: 'Nattljus', album: 'Sena kvällar',
-    duration: 221000, position: 84000, art: cover, canNext: true, canPrev: true, canSeek: true
+    duration: 221000, position: 84000, art: cover, canNext: true, canPrev: true, canSeek: true,
+    lossless: param('lossless', '0') === '1'
   };
   var startedAt = Date.now();
   var listings = param('listings', '1') === '1';
@@ -66,6 +67,33 @@
   var update = param('update', '') === 'ready'
     ? { state: 'ready', installed: 2, latest: 3, notes: 'Smoother track changes, Sonos, and a new clock screen', progress: 100, error: '', mayInstall: true }
     : { state: 'current', installed: 3, latest: 3, notes: '', progress: 0, error: '', mayInstall: true };
+
+  // What the scheduled Claude task writes each morning (invented titles), unless ?landing=0.
+  function square(bg, fg) {
+    return svg('<rect width="300" height="300" fill="' + bg + '"/><circle cx="150" cy="150" r="88" fill="' + fg + '" opacity="0.85"/>' +
+      '<circle cx="150" cy="150" r="20" fill="' + bg + '"/>', 300, 300);
+  }
+  function picks(list) {
+    return list.map(function (p, i) {
+      return { title: p[0], subtitle: p[1], link: 'spotify:playlist:sample' + p[0].length + i, image: square(p[2], p[3]) };
+    });
+  }
+  var d = new Date();
+  window.MockLanding = param('landing', '1') === '1' ? {
+    version: 1, name: 'Viggo',
+    date: d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2),
+    parts: {
+      morning: { greeting: 'Good morning, Viggo', note: 'Something light to ease into Wednesday.', picks: picks([
+        ['Morning Acoustic', 'Playlist', '#5E7A64', '#F0E6CF'], ['Kaffe och vinyl', 'Playlist', '#7A5A3E', '#EAD9B8'], ['Soft Pop Sunrise', 'Playlist', '#A6745A', '#F6E3C8']]) },
+      afternoon: { greeting: 'Good afternoon, Viggo', note: 'Focus music for the rest of the day.', picks: picks([
+        ['Deep Focus Piano', 'Playlist', '#2F4250', '#C9D7DF'], ['Lo-fi Study', 'Playlist', '#3E3352', '#D8C9E6']]) },
+      evening: { greeting: 'Good evening, Viggo', note: 'A quiet Tuesday night. How about some evening jazz?', picks: picks([
+        ['Evening Jazz Vibes', 'Playlist', '#23324F', '#E3A08C'], ['Late Night Piano Bar', 'Playlist', '#3A2430', '#E8C9A9'],
+        ['Blue Hour', 'Album · Nattljus', '#1F3A3A', '#9CC7B8'], ['Velvet Soul', 'Playlist', '#4A2A22', '#F0B98E']]) },
+      night: { greeting: 'Good night, Viggo', note: 'Something soft to wind down with.', picks: picks([
+        ['Sleepy Strings', 'Playlist', '#1B2233', '#8FA3C7'], ['Ambient Nights', 'Playlist', '#14161C', '#6E7B8C']]) }
+    }
+  } : null;
 
   // A sample reading, so the preview does not depend on the network.
   if (param('weather', '1') === '1') { window.MockWeather = { temp: 6.4, code: 3, day: false }; }
@@ -137,7 +165,7 @@
         });
       }
       return JSON.stringify([
-        { pkg: 'com.spotify.tv.android', app: 'Spotify', name: 'Made for you', items: items('com.spotify.tv.android',
+        { pkg: 'com.spotify.tv.android', app: 'Spotify', name: 'Recently played', items: items('com.spotify.tv.android',
           ['Daily Mix 1', 'Discover Weekly', 'Release Radar']) },
         { pkg: 'com.netflix.ninja', app: 'Netflix', name: 'Top picks for you', items: items('com.netflix.ninja',
           ['The Lighthouse Keeper', 'Cold Harbour', 'Seven Bridges', 'After the Rain', 'Night Shift']) },
@@ -167,6 +195,8 @@
     checkUpdate: function (force) { log.push('check ' + force); },
     installUpdate: function () { log.push('install'); update.state = 'installing'; },
     keepAwake: function (on) { log.push('awake ' + on); },
+    refreshContent: function () { log.push('refresh content'); },
+    openSpotify: function (link) { log.push('spotify ' + link); return true; },
     fixHomeButton: function () { log.push('fix home'); return param('fix', '1') === '1'; }
   };
 

@@ -14,7 +14,11 @@ public class MainActivity extends Activity {
     static final String EXTRA_VIEW = "view";
     static final int REQUEST_TV_LISTINGS = 7;
 
+    /** How long OK must be held to count as holding it. */
+    private static final long HOLD_MS = 550;
+
     private WebView web;
+    private boolean okHeld;
     private Bridge bridge;
     private MediaWatcher media;
 
@@ -49,6 +53,7 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(bridge, "Native");
         web.setWebViewClient(new AssetClient(this));
         web.loadUrl(App.ORIGIN + "/index.html");
+        bridge.refreshContent(true);
         web.requestFocus();
     }
 
@@ -100,6 +105,7 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_TV_LISTINGS) {
+            bridge.refreshContent(true);
             emit("permissions", "");
         }
     }
@@ -115,10 +121,25 @@ public class MainActivity extends Activity {
         int code = event.getKeyCode();
         // The remote's OK button reaches the page as a plain Enter key, whatever the TV calls it.
         if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER
+                || code == KeyEvent.KEYCODE_ENTER
                 || code == KeyEvent.KEYCODE_BUTTON_A || code == KeyEvent.KEYCODE_BUTTON_SELECT) {
+            // Holding OK: Android repeats the key while it is held. The page gets one "hold" for
+            // it instead of a stream of presses, which used to cancel moving an app at once.
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+                if (!okHeld && (event.getRepeatCount() >= 1
+                        && event.getEventTime() - event.getDownTime() >= HOLD_MS)) {
+                    okHeld = true;
+                    emit("hold", "");
+                }
+                return true;
+            }
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                okHeld = false;
+            }
             return super.dispatchKeyEvent(new KeyEvent(event.getDownTime(), event.getEventTime(),
-                    event.getAction(), KeyEvent.KEYCODE_ENTER, event.getRepeatCount(), event.getMetaState(),
-                    event.getDeviceId(), event.getScanCode(), event.getFlags(), event.getSource()));
+                    event.getAction(), KeyEvent.KEYCODE_ENTER, 0, event.getMetaState(),
+                    event.getDeviceId(), event.getScanCode(), event.getFlags() & ~KeyEvent.FLAG_LONG_PRESS,
+                    event.getSource()));
         }
         if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_SETTINGS) {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {

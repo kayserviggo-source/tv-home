@@ -65,8 +65,12 @@
     autoOpen: store.get('autoOpen', true),
     idleMin: store.get('idleMin', 2),
     accent: store.get('accent2', 'cover'),
-    weather: store.get('weather', true)
+    weather: store.get('weather', true),
+    clockDate: store.get('clockDate', true)
   };
+  /* Written once a day by a scheduled Claude task that uses the Spotify connector: a greeting,
+     a line for each part of the day, and music picked for it. Public, so it holds nothing private. */
+  var LANDING_URL = 'https://raw.githubusercontent.com/kayserviggo-source/tv-home/landing/landing.json';
   if (!ACCENTS[prefs.accent]) { prefs.accent = 'cover'; }
   var state = {
     view: 'home',
@@ -80,7 +84,11 @@
     status: {},
     content: { watchNext: [], previews: [] },
     contentSig: null,
-    shelf: 'music',         // what the shelf shows: 'music', an app's package, or 'ask:' + package
+    shelf: 'landing',       // what the shelf shows: 'landing', an app's package, or 'ask:' + package
+    shelfLayers: {},        // each app's shelf, built once and kept
+    landing: store.get('landing', null),
+    landingSig: '',
+    lastMoveAt: 0,
     shelfFocus: {},         // the poster last focused in each app's shelf
     dockKey: null,          // the dock tile last focused
     lastDir: '',
@@ -130,7 +138,7 @@
     if (state.panel) {
       pick = $('.opt[aria-pressed="true"], .swatch[aria-pressed="true"]', root);
     } else if (state.view === 'home') {
-      pick = (state.dockKey && $('#dock [data-key="' + state.dockKey + '"]')) || $('#dock .app');
+      pick = state.shelf === 'landing' ? landingEntry() || dockFocus() : dockFocus();
     } else if (state.view === 'player') {
       pick = $('#player [data-act="toggle"]');
       if (!pick || !isShown(pick)) { pick = $('#player [data-act="home"]'); }
@@ -302,14 +310,27 @@
       return true;
     }
     if (inShelf && direction === 'down') {
-      focus(defaultFocus());
+      focus(dockFocus());
       return true;
     }
     if (inTop && direction === 'down') {
-      focus(shelfEntry() || defaultFocus());
+      focus(shelfEntry() || dockFocus());
       return true;
     }
     return false;
+  }
+
+  /** The dock tile last used, or the first. */
+  function dockFocus() {
+    return (state.dockKey && $('#dock [data-key="' + state.dockKey + '"]')) || $('#dock .app');
+  }
+
+  /** Where focus rests on the landing page: play/pause, or the first pick, or the button. */
+  function landingEntry() {
+    var layer = $('#shelf-music');
+    var toggle = $('[data-act="toggle"]', layer);
+    if (toggle && isShown(toggle)) { return toggle; }
+    return $$('.f', layer).filter(isShown)[0] || null;
   }
 
   /* ---------- Views ---------- */
@@ -338,27 +359,35 @@
     if (state.view === 'ambient') { show(state.returnView || 'home'); }
   }
 
-  /** Home, as the Home button leaves it: the first app in focus and the music on the shelf. */
-  function goHome() {
+  /** The landing page: the music (or the greeting and picks) on the shelf, focus on it. The
+      dock keeps its place, so Down goes back to the app last used. */
+  function goLanding() {
     closePanel();
     stopMoving();
     if (state.view !== 'home') { show('home'); }
+    setShelf('landing', true);
+    focus(landingEntry() || dockFocus());
+  }
+
+  /** Home, as pressing Home on Home leaves it: the landing page, and the dock back at its start. */
+  function goHome() {
     var first = $('#dock .app');
     slide($('#dock'), 'x', 0);
     state.dockKey = first ? first.dataset.key : null;
-    focus(first || defaultFocus());
-    setShelf(shelfOwner(first), true);
+    goLanding();
   }
 
   function back() {
     if (state.moving) { stopMoving(); return; }
     if (state.panel) { closePanel(); return; }
     if (state.view === 'ambient') { leaveAmbient(); return; }
-    if (state.view === 'home' && document.activeElement && !document.activeElement.closest('.dock')) {
-      focus(defaultFocus());
+    if (state.view === 'home') {
+      var active = document.activeElement;
+      if (state.shelf !== 'landing' || !active || !active.closest('#shelf-music')) { goLanding(); }
+      else if (active) { bump(active, 'up'); }
       return;
     }
-    goHome();
+    goLanding();
   }
 
   /* ---------- Now playing ---------- */
@@ -492,6 +521,7 @@
     $$('img[data-art-label]').forEach(function (img) {
       if (url) { img.src = url; img.classList.add('in'); } else { img.classList.remove('in'); }
     });
+    $$('img[data-mini-art]').forEach(function (img) { if (url) { img.src = url; } });
     if (url && loaded) { colourFrom(loaded); } else { clearColour(); }
     // Let the record slide back out a moment after the new cover has started to show.
     setTimeout(endTrackChange, url ? 120 : 0);
@@ -550,10 +580,11 @@
       title = homeTitle = 'Almost there';
       hint = 'One permission is missing before your music can show up here.';
     } else if (mode === 'idle') {
+      var part = landingPart();
       status = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
       title = 'Nothing playing';
-      homeTitle = greeting();
-      hint = 'Start some music on your phone and it shows up here.';
+      homeTitle = part.greeting || greeting() + (part.name ? ', ' + part.name : '');
+      hint = part.note || 'Start some music on your phone and it shows up here.';
     } else {
       status = (np.playing ? 'Now playing' : 'Paused') + (np.room ? ' · ' + np.room : '');
       title = homeTitle = np.title || '';
@@ -580,6 +611,10 @@
     $$('[data-room]').forEach(function (el) { el.hidden = !(mode === 'active' && np.room); });
     setBars(fraction, mode === 'active' && !!np.playing);
     setArt(art);
+    var lossless = mode === 'active' && !!np.lossless;
+    $$('[data-lossless]').forEach(function (el) { if (el.hidden === lossless) { el.hidden = !lossless; } });
+    updateMini();
+    if (partName() !== picksPart) { renderPicks(); }
     if ((mode === 'active' && np.playing ? np.pkg || '' : '') !== soundingPkg) { markSounding(); }
 
     // If the focused control just disappeared (music stopped, say), move to a sensible one.
@@ -627,7 +662,7 @@
 
   /** Home shows the poster's colours while an app's shelf is up; everywhere else, the cover's. */
   function updateBackdrop() {
-    var posterShelf = state.view === 'home' && state.shelf !== 'music' && state.shelf.indexOf('ask:') !== 0;
+    var posterShelf = state.view === 'home' && state.shelf !== 'landing' && state.shelf.indexOf('ask:') !== 0;
     if (!posterShelf) { paintBackdrop(wash.music); return; }
     if (wash.poster && wash.poster.key === 'poster:' + posterWash.url) { paintBackdrop(wash.poster); }
     else if (!posterWash.url) { paintBackdrop(wash.music); } // no picture to take colour from
@@ -646,8 +681,13 @@
       var img = new Image();
       img.onload = function () {
         if (posterWash.url !== url) { return; }
-        wash.poster = { key: 'poster:' + url, img: img };
-        updateBackdrop();
+        // Decode off the main thread first, so drawing it never stalls a key press.
+        var ready = function () {
+          if (posterWash.url !== url) { return; }
+          wash.poster = { key: 'poster:' + url, img: img };
+          updateBackdrop();
+        };
+        if (img.decode) { img.decode().then(ready, ready); } else { ready(); }
       };
       img.onerror = function () { if (posterWash.url === url) { wash.poster = null; updateBackdrop(); } };
       img.src = url;
@@ -743,6 +783,10 @@
 
   function applyLook() {
     stage.style.setProperty('--accent', accentNow());
+  }
+
+  function applyClockDate() {
+    $$('.ambient-date').forEach(function (el) { el.classList.toggle('no-day', !prefs.clockDate); });
   }
 
   /* ---------- Weather ---------- */
@@ -879,7 +923,7 @@
     var html = '<span class="face">';
     if (app.banner) { html += '<img class="banner" alt="" src="' + esc(imageUrl('banner', app.pkg)) + '">'; }
     html += '<img class="icon" alt="" src="' + esc(imageUrl('icon', app.pkg)) + '"><span class="name">' + esc(app.label) + '</span>' +
-      '<i class="glint"></i></span><span class="label">' + esc(app.label) + '</span><span class="badge">On Home</span>' +
+      '<i class="glint"></i></span><span class="label">' + esc(app.label) + '<span class="tip">Hold OK to move</span></span><span class="badge">On Home</span>' +
       '<span class="eqbadge" aria-hidden="true"><span class="eq"><i></i><i></i><i></i></span></span>';
     tile.innerHTML = html;
     var banner = $('img.banner', tile);
@@ -985,6 +1029,8 @@
   /* ---------- Moving an app along the dock (hold OK on it) ---------- */
 
   function startMoving(tile) {
+    store.set('movedOnce', true);
+    tile.classList.remove('tipping');
     state.moving = tile;
     tile.classList.add('moving');
     $('#home .dock').classList.add('moving');
@@ -1049,45 +1095,189 @@
   }
 
   function musicLike(pkg) { return MUSIC_APPS.test(pkg || ''); }
+  function isSpotify(pkg) { return /^com\.spotify\./.test(pkg || ''); }
 
-  /** What an app has lined up: its Continue watching items first, then its own rows. */
+  /** A picture from elsewhere, shrunk on the TV side to the size it is shown at. */
+  function posterSrc(url, width) {
+    if (!url) { return ''; }
+    if (window.MockImages || /^(data:|poster\?|https:\/\/tvhome\.local\/)/.test(url)) { return url; }
+    return 'poster?w=' + width + '&u=' + encodeURIComponent(url);
+  }
+
+  /* ---------- Picks for the time of day (written by Claude, see LANDING_URL) ---------- */
+
+  function partName() {
+    var hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) { return 'morning'; }
+    if (hour >= 12 && hour < 17) { return 'afternoon'; }
+    if (hour >= 17 && hour < 23) { return 'evening'; }
+    return 'night';
+  }
+
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+
+  /** This part of the day's greeting, line and picks. The words only count on the day they were
+      written for; the picks keep for a few days. */
+  function landingPart() {
+    var d = state.landing;
+    var out = { greeting: '', note: '', picks: [], name: d && d.name ? d.name : '' };
+    if (!d || !d.parts) { return out; }
+    var part = d.parts[partName()] || {};
+    var age = (Date.parse(today()) - Date.parse(d.date || '')) / 86400000;
+    if (age === 0) { out.greeting = part.greeting || ''; out.note = part.note || ''; }
+    if (age >= 0 && age <= 3) { out.picks = (part.picks || []).filter(function (p) { return p && p.title && p.link; }); }
+    return out;
+  }
+
+  /** Picks from the other parts of the day, for the Spotify shelf. */
+  function otherPicks() {
+    var d = state.landing;
+    if (!d || !d.parts) { return []; }
+    var seen = {};
+    landingPart().picks.forEach(function (p) { seen[p.link] = true; });
+    var more = [];
+    ['morning', 'afternoon', 'evening', 'night'].forEach(function (name) {
+      if (name === partName()) { return; }
+      ((d.parts[name] || {}).picks || []).forEach(function (p) {
+        if (p && p.title && p.link && !seen[p.link]) { seen[p.link] = true; more.push(p); }
+      });
+    });
+    return more.slice(0, 12);
+  }
+
+  function pickItem(p) {
+    return { id: p.link, title: p.title, sub: p.subtitle || '', poster: posterSrc(p.image, 320), link: p.link };
+  }
+
+  var picksPart = '';
+  /** The picks on the landing page, when nothing plays. */
+  function renderPicks() {
+    picksPart = partName();
+    var box = $('#picks');
+    var picks = landingPart().picks.slice(0, 5);
+    var sig = JSON.stringify(picks);
+    if (box._sig === sig) { return; }
+    box._sig = sig;
+    var had = box.contains(document.activeElement) ? document.activeElement.dataset.link : null;
+    box.innerHTML = picks.map(function (p) {
+      var img = p.image ? '<img alt="" decoding="async" src="' + esc(posterSrc(p.image, 240)) + '">'
+        : '<div class="fallback" style="background:' + tintFor(p.title) + '">' + esc(p.title) + '</div>';
+      return '<button class="pick f" data-link="' + esc(p.link) + '" aria-label="' + esc(p.title) + '"><span class="art">' + img +
+        '<i class="glint"></i></span><span class="cap">' + esc(p.title) + (p.subtitle ? '<span>' + esc(p.subtitle) + '</span>' : '') + '</span></button>';
+    }).join('');
+    $$('img', box).forEach(function (img) { img.onerror = function () { img.remove(); }; });
+    box.classList.toggle('has', picks.length > 0);
+    $('#shelf-music').classList.toggle('has-picks', picks.length > 0);
+    if (had) { focus($('[data-link="' + had + '"]', box) || landingEntry() || dockFocus()); }
+  }
+
+  var landingAsked = 0;
+  function loadLanding(force) {
+    if (window.MockLanding !== undefined) { setLanding(window.MockLanding); return; }
+    if (!window.fetch || (!force && Date.now() - landingAsked < 30 * 60 * 1000)) { return; }
+    landingAsked = Date.now();
+    fetch(LANDING_URL + '?t=' + Math.floor(Date.now() / 600000), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.parts) { store.set('landing', d); setLanding(d); } })
+      .catch(function () { landingAsked = Date.now() - 25 * 60 * 1000; }); // try again in five minutes
+  }
+
+  function setLanding(d) {
+    var sig = JSON.stringify(d || null);
+    if (sig === state.landingSig) { return; }
+    state.landingSig = sig;
+    state.landing = d;
+    renderPicks();
+    renderNow();
+    state.contentSig = null;
+    loadContent();
+  }
+
+  /* ---------- What each app has lined up ---------- */
+
+  /** An app's shelf: Continue watching first, then the app's own rows. Spotify's starts with
+      the picks for this time of day. */
   function contentFor(pkg) {
     var groups = [];
+    var square = musicLike(pkg);
+    if (isSpotify(pkg)) {
+      var picks = landingPart().picks;
+      if (picks.length) {
+        groups.push({ title: partName() === 'night' ? 'For tonight' : 'For this ' + partName(), items: picks.map(pickItem), square: true });
+      }
+      var more = otherPicks();
+      if (more.length) { groups.push({ title: 'More for today', items: more.map(pickItem), square: true }); }
+    }
     var next = state.content.watchNext.filter(function (item) { return item.pkg === pkg; });
-    if (next.length) { groups.push({ title: 'Continue watching', items: next.slice(0, 12) }); }
+    if (next.length) { groups.push({ title: 'Continue watching', items: next.slice(0, 12), square: square }); }
     state.content.previews.filter(function (channel) { return channel.pkg === pkg && channel.items && channel.items.length; })
       .slice(0, 3).forEach(function (channel) {
-        groups.push({ title: channel.name || 'From ' + (channel.app || 'the app'), items: channel.items.slice(0, 12) });
+        groups.push({ title: channel.name || 'From ' + (channel.app || 'the app'), items: channel.items.slice(0, 12), square: square });
       });
     return groups;
   }
 
   /** Which shelf an item in focus asks for. Apps with something to show get their own; the
-      music is the shelf for everything else. */
+      landing page is the shelf for everything else. */
   function shelfOwner(el) {
     if (!el || !el.closest('.dock')) { return state.shelf; }
     var pkg = el.dataset.pkg;
-    if (!pkg || musicLike(pkg)) { return 'music'; }
-    if (!state.status.tvListings) {
+    if (!pkg || (musicLike(pkg) && !isSpotify(pkg))) { return 'landing'; }
+    if (!state.status.tvListings && !isSpotify(pkg)) {
       var app = appByPkg(pkg);
-      return app && app.tv ? 'ask:' + pkg : 'music';
+      return app && app.tv ? 'ask:' + pkg : 'landing';
     }
-    return contentFor(pkg).length ? pkg : 'music';
+    return contentFor(pkg).length ? pkg : 'landing';
   }
 
   var shelfTimer = 0;
+  var tipTimer = 0;
   /** Called whenever focus moves. Moving along the dock changes the shelf once focus rests. */
   function focusChanged(el) {
     if (state.view !== 'home' || state.panel || !el.closest('#home')) { return; }
+    clearTimeout(tipTimer);
+    $$('#dock .tipping').forEach(function (tile) { tile.classList.remove('tipping'); });
     if (el.closest('.dock')) {
       state.dockKey = el.dataset.key;
       var owner = shelfOwner(el);
       clearTimeout(shelfTimer);
-      if (owner !== state.shelf) { shelfTimer = setTimeout(function () { setShelf(owner); }, 260); }
+      if (owner !== state.shelf) { shelfTimer = setTimeout(function () { setShelf(owner); }, 300); }
+      // Until an app has been moved once, say how after a moment on a tile.
+      if (el.dataset.pkg && !store.get('movedOnce', false)) {
+        tipTimer = setTimeout(function () { if (document.activeElement === el) { el.classList.add('tipping'); } }, 2200);
+      }
     } else if (el.classList.contains('poster')) {
       state.shelfFocus[state.shelf] = el.dataset.key;
       washFromPoster(el.dataset.poster || '');
     }
+  }
+
+  /** An app's shelf layer: built the first time, then kept, so moving along the dock again
+      only switches which one shows. */
+  function layerFor(owner) {
+    var layer = state.shelfLayers[owner];
+    if (!layer || !layer.parentNode) {
+      layer = document.createElement('div');
+      layer.className = 'shelf-layer shelf-app';
+      layer.dataset.zone = 'posters';
+      $('#shelf').appendChild(layer);
+      buildShelf(layer, owner);
+      state.shelfLayers[owner] = layer;
+    }
+    return layer;
+  }
+
+  /** Forgets built shelves (their content changed), except the one on screen. */
+  function dropShelves(keep) {
+    Object.keys(state.shelfLayers).forEach(function (owner) {
+      if (owner === keep) { return; }
+      var layer = state.shelfLayers[owner];
+      if (layer && layer.parentNode) { layer.parentNode.removeChild(layer); }
+      delete state.shelfLayers[owner];
+    });
   }
 
   /** Shows a shelf. A new app's shelf slides in from the side the remote moved towards. */
@@ -1095,26 +1285,25 @@
     clearTimeout(shelfTimer);
     if (owner === state.shelf) { return; }
     state.shelf = owner;
-    var music = $('#shelf-music');
-    var layers = $$('#shelf .shelf-app');
-    if (owner === 'music') {
-      layers.forEach(function (layer) { layer.classList.remove('on'); });
-      music.classList.add('on');
+    var landing = $('#shelf-music');
+    var shown = $$('#shelf .shelf-app.on');
+    if (owner === 'landing') {
+      shown.forEach(function (layer) { layer.classList.remove('on'); });
+      landing.classList.add('on');
       washFromPoster(null);
     } else {
-      var shown = layers.filter(function (layer) { return layer.classList.contains('on'); })[0];
-      var layer = shown === layers[0] ? layers[1] : layers[0];
-      buildShelf(layer, owner);
+      var layer = layerFor(owner);
       layer.classList.remove('enter-right', 'enter-left', 'enter-up');
       void layer.offsetWidth;
       layer.classList.add(now ? 'enter-up' : state.lastDir === 'left' ? 'enter-left' : 'enter-right');
       layer.classList.add('on');
-      if (shown) { shown.classList.remove('on'); }
-      music.classList.remove('on');
+      shown.forEach(function (other) { if (other !== layer) { other.classList.remove('on'); } });
+      landing.classList.remove('on');
       var first = $('.poster', layer);
       washFromPoster(first ? first.dataset.poster || '' : null);
     }
     updateBackdrop();
+    updateMini();
   }
 
   function buildShelf(layer, owner) {
@@ -1128,7 +1317,9 @@
     var html = '<div class="track">';
     contentFor(owner).forEach(function (group, g) {
       html += '<div class="pgroup"><h3>' + esc(group.title) + '</h3><div class="items">';
-      group.items.forEach(function (item, i) { html += posterHtml(item, owner + ':' + g + ':' + (item.id != null ? item.id : i)); });
+      group.items.forEach(function (item, i) {
+        html += posterHtml(item, owner + ':' + g + ':' + (item.id != null ? item.id : i), group.square);
+      });
       html += '</div></div>';
     });
     layer.innerHTML = html + '</div>';
@@ -1145,57 +1336,85 @@
     });
   }
 
-  function posterHtml(item, key) {
+  function posterHtml(item, key, square) {
     var title = item.title || item.app || '';
     var sub = [item.sub, minutesLeft(item.left)].filter(Boolean).join(' · ');
-    var html = '<button class="poster f" data-key="' + esc(key) + '" data-intent="' + esc(item.intent || '') + '" data-owner="' +
-      esc(item.pkg || '') + '" data-poster="' + esc(item.poster || '') + '" aria-label="' + esc(title) + '"><div class="art">';
-    html += item.poster ? '<img alt="" src="' + esc(item.poster) + '">'
+    var html = '<button class="poster f' + (square ? ' square' : '') + '" data-key="' + esc(key) + '" data-intent="' + esc(item.intent || '') +
+      '" data-owner="' + esc(item.pkg || '') + '" data-poster="' + esc(item.poster || '') + '"' +
+      (item.link ? ' data-link="' + esc(item.link) + '"' : '') + ' aria-label="' + esc(title) + '"><div class="art">';
+    html += item.poster ? '<img alt="" decoding="async" src="' + esc(item.poster) + '">'
       : '<div class="fallback" style="background:' + tintFor(title) + '">' + esc(title) + '</div>';
     if (item.progress > 0) { html += '<div class="left"><i style="width:' + Math.round(Math.min(1, item.progress) * 100) + '%"></i></div>'; }
     html += '<i class="glint"></i></div><div class="cap"><b>' + esc(title) + '</b><span>' + esc(sub || item.app || '') + '</span></div></button>';
     return html;
   }
 
-  /** Where Up from the dock lands: play/pause on the music, or the poster last used. */
+  /** Where Up from the dock lands: the landing page's own entry, or the poster last used. */
   function shelfEntry() {
-    var layer = $('#shelf .shelf-layer.on');
+    if (state.shelf === 'landing') { return landingEntry(); }
+    var layer = state.shelfLayers[state.shelf];
     if (!layer) { return null; }
-    var pick = null;
-    if (state.shelf === 'music') {
-      pick = $('[data-act="toggle"]', layer);
-    } else if (state.shelfFocus[state.shelf]) {
-      pick = $('[data-key="' + state.shelfFocus[state.shelf] + '"]', layer);
-    }
+    var pick = state.shelfFocus[state.shelf] ? $('[data-key="' + state.shelfFocus[state.shelf] + '"]', layer) : null;
     if (pick && isShown(pick)) { return pick; }
     return $$('.f', layer).filter(isShown)[0] || null;
   }
 
-  /** Reads what the apps share and refreshes the shelf on screen if any of it changed. */
+  /** The mini player in the top bar: on whenever music plays and the shelf shows something else. */
+  function updateMini() {
+    var np = state.np || {};
+    var on = state.view === 'home' && !!np.active && state.shelf !== 'landing';
+    var mini = $('#mini');
+    if (mini.classList.contains('on') !== on) { mini.classList.toggle('on', on); }
+  }
+
+  /** Reads what the apps share (the TV side keeps it ready) and refreshes the shelf on screen
+      if any of it changed. */
   function loadContent() {
     state.status = callJson('getStatus', {});
     var allowed = !!state.status.tvListings;
     var watchNext = allowed ? callJson('getWatchNext', []) : [];
-    var previews = allowed ? callJson('getPreviews', []).filter(function (channel) { return !musicLike(channel.pkg); }) : [];
-    var sig = JSON.stringify([watchNext, previews, allowed]);
+    var previews = allowed ? callJson('getPreviews', []) : [];
+    var sig = JSON.stringify([watchNext, previews, allowed, state.landingSig]);
     if (sig === state.contentSig) { return; }
     state.contentSig = sig;
     state.content = { watchNext: watchNext, previews: previews };
 
     var active = document.activeElement;
-    var inShelf = active && active.closest && active.closest('#shelf');
+    var inShelf = active && active.closest && active.closest('#shelf .shelf-app');
     var owner = active && active.closest && active.closest('#dock') ? shelfOwner(active) : state.shelf;
-    if (owner !== 'music' && owner.indexOf('ask:') !== 0 && !contentFor(owner).length) { owner = 'music'; }
-    if (owner === state.shelf && owner !== 'music') {
+    if (owner !== 'landing' && owner.indexOf('ask:') !== 0 && !contentFor(owner).length) { owner = 'landing'; }
+    dropShelves(owner === state.shelf ? owner : null);
+    if (owner === state.shelf && owner !== 'landing') {
       // Same app: refill its shelf in place and keep focus on the same poster.
-      var layer = $('#shelf .shelf-app.on');
+      var layer = layerFor(owner);
       var key = inShelf ? active.dataset.key : null;
       buildShelf(layer, owner);
-      if (inShelf) { focus((key && $('[data-key="' + key + '"]', layer)) || shelfEntry() || defaultFocus()); }
+      if (inShelf) { focus((key && $('[data-key="' + key + '"]', layer)) || shelfEntry() || dockFocus()); }
     } else {
       setShelf(owner, true);
-      if (inShelf) { focus(shelfEntry() || defaultFocus()); }
+      if (inShelf) { focus(shelfEntry() || dockFocus()); }
     }
+    schedulePrebuild();
+  }
+
+  /** Builds the other apps' shelves while the remote rests, so the first visit is smooth too. */
+  var prebuildTimer = 0;
+  function schedulePrebuild() {
+    clearTimeout(prebuildTimer);
+    var step = function () {
+      if (!state.visible || state.view !== 'home') { return; }
+      if (Date.now() - state.lastInput < 1500) { prebuildTimer = setTimeout(step, 900); return; }
+      var tiles = $$('#dock .app[data-pkg]');
+      for (var i = 0; i < tiles.length; i++) {
+        var owner = shelfOwner(tiles[i]);
+        if (owner !== 'landing' && owner.indexOf('ask:') !== 0 && !state.shelfLayers[owner]) {
+          layerFor(owner);
+          prebuildTimer = setTimeout(step, 500);
+          return;
+        }
+      }
+    };
+    prebuildTimer = setTimeout(step, 1500);
   }
 
   /* ---------- Control Centre ---------- */
@@ -1243,15 +1462,6 @@
       option('sleep', '60', '60 min', sleep.mode === 'timer' && sleep.minutes === 60) +
       option('sleep', 'track', 'End of track', sleep.mode === 'track') + '</div></div>';
 
-    html += '<div class="group" data-zone="auto"><h2>When music starts from your phone</h2><div class="options">' +
-      option('auto', 'on', 'Open the player', prefs.autoOpen) +
-      option('auto', 'off', 'Stay where I am', !prefs.autoOpen) + '</div></div>';
-
-    html += '<div class="group" data-zone="idle"><h2>Clock screen while music plays</h2><div class="options">' +
-      option('idle', '2', 'After 2 min', prefs.idleMin === 2) +
-      option('idle', '5', 'After 5 min', prefs.idleMin === 5) +
-      option('idle', '0', 'Never', prefs.idleMin === 0) + '</div></div>';
-
     if (inputs.length) {
       html += '<div class="group" data-zone="inputs"><h2>Input</h2><div class="options">';
       inputs.forEach(function (input) {
@@ -1260,9 +1470,22 @@
       html += '</div></div>';
     }
 
+    html += '<div class="group" data-zone="auto"><h2>When music starts from your phone</h2><div class="options">' +
+      option('auto', 'on', 'Open the player', prefs.autoOpen) +
+      option('auto', 'off', 'Stay where I am', !prefs.autoOpen) + '</div></div>';
+
+    html += '<div class="group" data-zone="idle"><h2>Clock screen</h2>' +
+      '<div class="sub">Shows while music plays</div><div class="options">' +
+      option('idle', '2', 'After 2 min', prefs.idleMin === 2) +
+      option('idle', '5', 'After 5 min', prefs.idleMin === 5) +
+      option('idle', '0', 'Never', prefs.idleMin === 0) + '</div>' +
+      '<div class="sub">Day and date</div><div class="options">' +
+      option('clockdate', 'on', 'Show', prefs.clockDate) +
+      option('clockdate', 'off', 'Hide', !prefs.clockDate) + '</div></div>';
+
     var check = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-    html += '<div class="group" data-zone="accent"><h2>Accent colour</h2>' +
-      '<div class="hint">' + (prefs.accent === 'cover' ? 'Follows the cover of what is playing.' : 'Used for progress, labels and highlights.') + '</div>' +
+    html += '<div class="group" data-zone="accent"><h2>Look</h2>' +
+      '<div class="sub">' + (prefs.accent === 'cover' ? 'Accent colour: follows the cover of what is playing' : 'Accent colour') + '</div>' +
       '<div class="swatches">' +
       Object.keys(ACCENTS).map(function (name) {
         var a = ACCENTS[name];
@@ -1270,27 +1493,27 @@
           : '<i class="chip" style="background:' + a.colour + '">' + check + '</i>';
         return '<button class="swatch f" data-opt="accent:' + name + '" aria-label="' + a.name + '" aria-pressed="' +
           (prefs.accent === name ? 'true' : 'false') + '">' + chip + '<span>' + a.name + '</span></button>';
-      }).join('') + '</div></div>';
-
-    html += '<div class="group" data-zone="weather"><h2>Weather for ' + esc(PLACE.name) + '</h2><div class="options">' +
+      }).join('') + '</div>' +
+      '<div class="sub">Weather in ' + esc(PLACE.name) + '</div><div class="options">' +
       option('weather', 'on', 'Show', prefs.weather) +
       option('weather', 'off', 'Hide', !prefs.weather) + '</div></div>';
 
-    html += '<div class="group" data-zone="shortcuts"><h2>Shortcuts</h2><div class="options">' +
-      '<button class="opt f" data-act="apps">All apps</button>' +
-      '<button class="opt f" data-act="settings">TV settings</button></div></div>';
-
     html += updateGroup();
 
+    // Setup only lists what still needs doing; once all is done it is one quiet line.
+    var homeOk = status.homeButton && status.homeButtonRunning !== false;
+    var rows = '';
+    if (!status.nowPlayingAccess) {
+      rows += setupRow(false, 'Now playing', 'Needs notification access to show the current track.', 'notifications', 'Open settings');
+    }
+    if (!homeOk) { rows += homeButtonRow(status); }
+    if (!status.tvListings) {
+      rows += setupRow(false, 'Continue watching', 'Lets Home show what Netflix and other apps share.', 'listings', 'Allow');
+    }
     html += '<div class="group" data-zone="setup"><h2>Setup</h2>' +
-      setupRow(!!status.nowPlayingAccess, 'Now playing',
-        status.nowPlayingAccess ? 'Shows the current track from Spotify and other apps.'
-          : 'Needs notification access. Use the setup guide, or try the button.', 'notifications', 'Open settings') +
-      homeButtonRow(status) +
-      setupRow(!!status.tvListings, 'Continue watching',
-        status.tvListings ? 'Shows what your apps share for Home.'
-          : 'Lets Home show what Netflix and other apps share.', 'listings', 'Allow') +
-      '</div>';
+      (rows || '<div class="all-set">Everything is set up: now playing, the Home button and Continue watching.</div>') +
+      '<button class="setup-row f" data-act="settings"><span class="what"><b>TV settings</b>' +
+      '<span>Picture, sound, network and everything else on the TV.</span></span><span class="state">Open</span></button></div>';
 
     var web = /Chrome\/(\d+)/.exec(navigator.userAgent);
     html += '<div class="about">TV Home ' + esc(status.version || '') + ' · ' + esc(status.device || '') +
@@ -1427,6 +1650,10 @@
       prefs.accent = value;
       store.set('accent2', value);
       applyLook();
+    } else if (group === 'clockdate') {
+      prefs.clockDate = value === 'on';
+      store.set('clockDate', prefs.clockDate);
+      applyClockDate();
     } else if (group === 'weather') {
       prefs.weather = value === 'on';
       store.set('weather', prefs.weather);
@@ -1457,6 +1684,10 @@
         } else { call('openSettings', 'accessibility'); }
       }
       else if (!call('openSettings', d.setup)) { toast('This TV has no screen for that. Use the setup guide.'); }
+      return;
+    }
+    if (d.link) {
+      if (!call('openSpotify', d.link)) { toast('Could not open Spotify'); }
       return;
     }
     if (d.intent !== undefined && el.classList.contains('poster')) {
@@ -1521,6 +1752,10 @@
       else if (key !== 'ArrowUp' && !e.repeat) { stopMoving(); press = { swallow: true }; }
       return;
     }
+    if (e.repeat && /^Arrow/.test(key)) {
+      if (Date.now() - state.lastMoveAt < 120) { return; }
+    }
+    if (/^Arrow/.test(key)) { state.lastMoveAt = Date.now(); }
     switch (key) {
       case 'ArrowLeft': move('left'); break;
       case 'ArrowRight': move('right'); break;
@@ -1597,6 +1832,16 @@
     emit: function (name, detail) {
       switch (name) {
         case 'media': pull(); break;
+        case 'content': loadContent(); break;
+        case 'hold':
+          // The TV side saw OK held down (more reliable than timing it here).
+          noteInput();
+          if (press && !press.held && !press.swallow) {
+            clearTimeout(press.timer);
+            press.held = true;
+            hold(press.el);
+          }
+          break;
         case 'input': noteInput(); break;
         case 'back': noteInput(); back(); break;
         case 'menu':
@@ -1616,7 +1861,9 @@
           state.visible = true;
           noteInput();
           loadApps();
+          call('refreshContent');
           loadContent();
+          loadLanding(false);
           pull();
           loadWeather();
           call('checkUpdate', false);
@@ -1638,10 +1885,9 @@
         case 'show':
           noteInput();
           if (detail === 'player') { closePanel(); show('player'); }
-          else if (!state.visible && Date.now() - state.pausedAt > 1500 && state.view === 'home' && !state.panel) {
-            // Back from another app: Home is as it was left, like Apple TV.
-            stopMoving();
-            restoreFocus();
+          else if (!state.visible && Date.now() - state.pausedAt > 1500) {
+            // Back from another app: the landing page, with the dock still where it was.
+            goLanding();
           } else { goHome(); }
           break;
         default:
@@ -1673,12 +1919,15 @@
   $('#home').classList.add('on', 'arrive');
   renderClock();
   loadApps();
+  renderPicks();
   pull();
   loadContent();
+  loadLanding(true);
   loadWeather();
   pollUpdate();
   var first = call('takePendingView');
   if (first === 'player') { show('player'); } else { goHome(); }
   setInterval(tick, 1000);
-  setInterval(function () { if (state.visible) { loadContent(); } }, 5 * 60 * 1000);
+  setInterval(function () { if (state.visible) { call('refreshContent'); loadLanding(false); } }, 5 * 60 * 1000);
+  applyClockDate();
 })();

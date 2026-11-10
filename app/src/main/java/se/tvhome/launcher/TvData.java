@@ -66,7 +66,7 @@ final class TvData {
             while (c.moveToNext()) {
                 String pkg = c.getString(1);
                 String title = text(c, 2);
-                String poster = MediaWatcher.imageUrl(text(c, 6));
+                String poster = Posters.url(text(c, 6), 640);
                 String intent = text(c, 7);
                 if (pkg == null || pkg.equals(context.getPackageName()) || intent.isEmpty()) {
                     continue;
@@ -166,7 +166,7 @@ final class TvData {
                         continue;
                     }
                     JSONArray items = channel.getJSONArray("items");
-                    String poster = MediaWatcher.imageUrl(text(c, 3));
+                    String poster = Posters.url(text(c, 3), 640);
                     String intent = text(c, 4);
                     if (items.length() >= 12 || poster.isEmpty() || intent.isEmpty()) {
                         continue;

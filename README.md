@@ -5,11 +5,16 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
 
 ## What it does
 
-- **Home.** A shelf above a dock of apps, laid out like Apple TV. The shelf shows the music
-  (record, sleeve and controls); move to Netflix, YouTube or SVT Play in the dock and it shows
-  what that app has lined up instead, and the screen takes its colours from the poster in
-  focus. Up goes into the shelf, Down comes back to the app. With nothing playing, the shelf
-  is a greeting with the date.
+- **Home.** A shelf above a dock of apps, laid out like Apple TV. Home opens on the landing
+  page: the music that is playing (record, sleeve and controls), or, with nothing playing, a
+  greeting with the date and music picked for the time of day. Move along the dock and the
+  shelf shows what the app in focus has lined up (Spotify: your picks and Spotify's own rows;
+  Netflix, YouTube, SVT Play: Continue watching and the app's rows), and the screen takes its
+  colours from the poster in focus. What is playing stays in the top left corner. Up goes into
+  the shelf, Down back to the dock, Back to the landing page.
+- **Picks from Claude.** The landing page can show a greeting, a line for the part of the day
+  and Spotify picks written by a scheduled Claude task with the Spotify connector. The TV reads
+  them from `LANDING_URL` in `app.js`; without that file it shows its own greeting.
 - **Now playing.** Shows the current track from Spotify (or any app that plays media): cover,
   title, artist, progress, and play/pause/skip. It reads this from Android's media sessions,
   so it needs no Spotify login.
@@ -19,11 +24,15 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
   soundbar is ignored.
 - **Player.** A full-screen view of the same thing, with ±10 second seek. It can open by
   itself when music is started from a phone.
-- **Clock screen.** After a couple of minutes without a button press while music plays, a
-  large clock with the current track.
+- **Lossless.** A Lossless badge when a Sonos speaker reports a FLAC or ALAC stream. Sonos
+  does not document this, so the badge may not show for every lossless stream.
+- **Clock screen.** After a couple of minutes without a button press while music plays, the
+  record and the song large, with the time (and, if wanted, the date) in the corner.
 - **Continue watching.** What Netflix, SVT Play, YouTube and other apps publish for TV home
   screens, on each app's shelf. Each app decides what it shares, so this can be fuller or
   emptier per app. Spotify's own suggestion rows are left out: its shelf is the music.
+- **Speed.** Posters are fetched and shrunk to their shown size on the TV side and kept, and
+  what apps share is read in the background, so moving around never waits on either.
 - **Apps.** The dock holds the apps you put on Home, then All apps and Control Centre. Hold OK
   on an app in the dock to move it (left and right, Down takes it off Home, OK puts it down).
   On All apps, hold OK on an app to add it to Home or take it off.

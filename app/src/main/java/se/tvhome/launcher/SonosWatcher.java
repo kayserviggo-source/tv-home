@@ -85,6 +85,8 @@ final class SonosWatcher {
     private String artist = "";
     private String album = "";
     private String service = "";
+    private boolean lossless;
+    private String format = "";
     private long duration;
     private long position;
     private long positionAt;
@@ -314,6 +316,17 @@ final class SonosWatcher {
             }
         }
         String art = unescape(tag(meta, "upnp:albumArtURI"));
+        // Sonos does not document the stream's quality. The format, when the speaker names one,
+        // sits in the res element's protocolInfo or in the track address; FLAC or ALAC there
+        // means lossless. When neither says, no badge is shown rather than a guess.
+        String res = "";
+        int at = meta.indexOf("protocolInfo=\"");
+        if (at >= 0) {
+            int end = meta.indexOf('"', at + 14);
+            res = end > at ? meta.substring(at + 14, end) : "";
+        }
+        String hints = (res + " " + p.uri).toLowerCase(Locale.ROOT);
+        boolean newLossless = hints.contains("flac") || hints.contains("alac") || hints.contains("lossless");
         long newDuration = clockToMs(tag(positionInfo, "TrackDuration"));
         long newPosition = clockToMs(tag(positionInfo, "RelTime"));
 
@@ -326,6 +339,8 @@ final class SonosWatcher {
             artist = newArtist;
             album = newAlbum;
             service = serviceName(p.uri, stream);
+            lossless = newLossless;
+            format = res;
             duration = newDuration;
             position = newPosition;
             positionAt = SystemClock.elapsedRealtime();
@@ -370,6 +385,8 @@ final class SonosWatcher {
         title = "";
         artist = "";
         album = "";
+        lossless = false;
+        format = "";
         artRemote = "";
         artBytes = null;
         artUrl = "";
@@ -429,6 +446,8 @@ final class SonosWatcher {
             o.put("canNext", true);
             o.put("canPrev", true);
             o.put("canSeek", duration > 0);
+            o.put("lossless", lossless);
+            o.put("format", format);
             return o;
         } catch (JSONException e) {
             return null;

@@ -56,6 +56,16 @@ final class AssetClient extends WebViewClient {
             if (path.equals("/img")) {
                 return foreignImage(url.getQueryParameter("u"));
             }
+            if (path.equals("/poster")) {
+                int width = 640;
+                try {
+                    width = Integer.parseInt(url.getQueryParameter("w"));
+                } catch (NumberFormatException ignored) {
+                    // Default width.
+                }
+                byte[] bytes = Posters.get(context, url.getQueryParameter("u"), width);
+                return image(bytes, Posters.type(bytes), true);
+            }
             String file = path.equals("/") ? "index.html" : path.substring(1);
             if (file.contains("..")) {
                 return notFound();
