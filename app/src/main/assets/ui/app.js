@@ -45,10 +45,19 @@
   };
 
   var MAX_PINS = 4;
+  var FONTS = { clean: 'Clean', soft: 'Soft', elegant: 'Elegant' };
+  var ACCENTS = { amber: '#D9A441', rust: '#D97B5C', sage: '#9DB59A', sky: '#8FB3D9' };
+  /* Where the weather is for. A fixed place for now; there is no keyboard-friendly way to pick one yet. */
+  var PLACE = { name: 'Halmstad', lat: 56.674, lon: 12.857 };
   var prefs = {
     autoOpen: store.get('autoOpen', true),
-    idleMin: store.get('idleMin', 2)
+    idleMin: store.get('idleMin', 2),
+    font: store.get('font', 'clean'),
+    accent: store.get('accent', 'amber'),
+    weather: store.get('weather', true)
   };
+  if (!FONTS[prefs.font]) { prefs.font = 'clean'; }
+  if (!ACCENTS[prefs.accent]) { prefs.accent = 'amber'; }
   var state = {
     view: 'home',
     returnView: 'home',
@@ -132,14 +141,33 @@
     if (el) { focus(el); } else if (document.activeElement) { document.activeElement.blur(); }
   }
 
-  /** Scrolls whatever needs scrolling so the focused item is comfortably on screen. */
+  /* Lists never scroll natively. They are slid with a transform, which the TV's graphics chip
+     animates on its own, so movement stays smooth even when the page is busy. */
+  var VIEW_WIDTH = 1728; // the 1920 layout minus the 96px margin on each side
+
+  function slide(el, axis, value) {
+    value = Math.max(0, Math.round(value));
+    if (el['_' + axis] === value) { return; }
+    el['_' + axis] = value;
+    el.style.transform = axis === 'x' ? 'translate3d(' + (-value) + 'px,0,0)' : 'translate3d(0,' + (-value) + 'px,0)';
+  }
+
+  /** An item's position inside one of its ancestors, in layout pixels (unaffected by slides or focus zoom). */
+  function offsetWithin(el, ancestor) {
+    var x = 0, y = 0;
+    while (el && el !== ancestor) { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
+    return { x: x, y: y };
+  }
+
+  /** Slides whatever needs sliding so the focused item is comfortably on screen. */
   function reveal(el) {
-    var scroller = el.closest('.scroller');
-    if (scroller) {
-      var left = el.offsetLeft - (scroller.clientWidth - el.offsetWidth) / 2;
-      scroller.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+    var track = el.closest('.track');
+    if (track) {
+      var centred = offsetWithin(el, track).x - (VIEW_WIDTH - el.offsetWidth) / 2;
+      var furthest = Math.max(0, track.scrollWidth - VIEW_WIDTH);
+      slide(track, 'x', Math.min(furthest, centred));
     }
-    var rows = el.closest('#rows');
+    var rows = el.closest('.rows-inner');
     if (rows) {
       var row = el.closest('.row');
       var top = 0;
@@ -149,35 +177,33 @@
         var anchor = row;
         var before = row.previousElementSibling;
         if (!row.nextElementSibling && before && before.classList.contains('row') &&
-            row.offsetTop + row.offsetHeight - (before.offsetTop - 28) <= rows.clientHeight - 40) {
+            row.offsetTop + row.offsetHeight - (before.offsetTop - 28) <= rows.parentElement.clientHeight - 40) {
           anchor = before;
         }
-        top = Math.max(0, anchor.offsetTop - 28);
+        top = anchor.offsetTop - 28;
       }
-      rows.scrollTo({ top: top, behavior: 'smooth' });
+      slide(rows, 'y', top);
       return;
     }
-    var box = el.closest('.grid-scroll, .panel-body');
+    var box = el.closest('.scroll-inner');
     if (box) {
-      var r = el.getBoundingClientRect();
-      var c = box.getBoundingClientRect();
-      var top = (r.top - c.top) / scale + box.scrollTop;
-      var height = r.height / scale;
+      var port = box.parentElement.clientHeight;
+      var at = offsetWithin(el, box).y;
+      var height = el.offsetHeight;
       var margin = 70;
-      if (top - margin < box.scrollTop) {
-        box.scrollTo({ top: Math.max(0, top - margin), behavior: 'smooth' });
-      } else if (top + height + margin > box.scrollTop + box.clientHeight) {
-        box.scrollTo({ top: top + height + margin - box.clientHeight, behavior: 'smooth' });
-      }
+      var y = box._y || 0;
+      if (at - margin < y) { y = at - margin; }
+      else if (at + height + margin > y + port) { y = at + height + margin - port; }
+      slide(box, 'y', Math.min(y, Math.max(0, box.offsetHeight - port)));
     }
   }
 
-  /** Where an item sits in the page's own layout, ignoring how far its list is scrolled up or down. */
+  /** Where an item sits in the 1920x1080 layout, as the eye sees it along a row. */
   function layoutRect(el) {
-    var r = el.getBoundingClientRect();
-    var box = el.closest('#rows, .grid-scroll, .panel-body');
-    var shift = box ? box.scrollTop * scale : 0;
-    return { left: r.left, right: r.right, top: r.top + shift, bottom: r.bottom + shift };
+    var p = offsetWithin(el, stage);
+    var track = el.closest('.track');
+    var left = p.x - (track ? (track._x || 0) : 0);
+    return { left: left, right: left + el.offsetWidth, top: p.y, bottom: p.y + el.offsetHeight };
   }
 
   function move(direction) {
@@ -230,7 +256,7 @@
         candidates.forEach(function (c) { if (c.distance < nearest) { nearest = c.distance; } });
       }
       candidates.forEach(function (c) {
-        if (c.distance > nearest + 40 * scale) { return; }
+        if (c.distance > nearest + 40) { return; }
         var b = c.rect;
         var side = Math.max(0, Math.max(a.left, b.left) - Math.min(a.right, b.right));
         var centre = Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2);
@@ -250,6 +276,8 @@
     if (view === 'ambient') { state.returnView = state.view; }
     if (view === 'allapps') { renderAllApps(); }
     state.view = view;
+    stage.dataset.view = view;
+    $('#home').classList.remove('arrive');
     $$('.view').forEach(function (v) { v.classList.toggle('on', v.id === view); });
     if (view === 'ambient') {
       if (document.activeElement) { document.activeElement.blur(); }
@@ -267,7 +295,7 @@
   function goHome() {
     closePanel();
     if (state.view !== 'home') { show('home'); }
-    $('#rows').scrollTo({ top: 0, behavior: 'smooth' });
+    slide($('#rows-inner'), 'y', 0);
     focus(defaultFocus());
   }
 
@@ -320,9 +348,22 @@
       state.stoppedSince = Date.now();
     }
 
+    var newTrack = !!key && !!state.npKey && key !== state.npKey;
     state.npKey = key;
     renderNow();
+    if (newTrack) { announceTrack(); }
     updateAwake();
+  }
+
+  /** A new track: let its title and artist rise into place rather than just switch. */
+  var swapTimer = 0;
+  function announceTrack() {
+    var boxes = $$('.now-info, .player-info, .ambient-text');
+    boxes.forEach(function (box) { box.classList.remove('swap'); });
+    void stage.offsetWidth; // restart the animation if one is still running
+    boxes.forEach(function (box) { box.classList.add('swap'); });
+    clearTimeout(swapTimer);
+    swapTimer = setTimeout(function () { boxes.forEach(function (box) { box.classList.remove('swap'); }); }, 900);
   }
 
   function setAll(name, text, longAt) {
@@ -336,6 +377,19 @@
   }
 
   var lastArt = null;
+  var lastFraction = 0;
+
+  /** Moves the progress bars. While playing they glide for a second towards where the track
+      will be by the next update; a seek or a new track moves them quickly instead. */
+  function setBars(fraction, gliding) {
+    var jump = !gliding || Math.abs(fraction - lastFraction) > 0.03;
+    lastFraction = fraction;
+    $$('[data-np="bar"]').forEach(function (el) {
+      el.classList.toggle('jump', jump);
+      el.style.transform = 'scaleX(' + fraction.toFixed(4) + ')';
+    });
+  }
+
   function renderNow() {
     var np = state.np || { access: false, active: false };
     var mode = !np.access ? 'setup' : (np.active ? 'active' : 'idle');
@@ -361,7 +415,8 @@
       art = np.art || '';
       position = clock(np.position);
       duration = np.duration > 0 ? clock(np.duration) : '';
-      fraction = np.duration > 0 ? Math.min(1, np.position / np.duration) : 0;
+      // Aim a second ahead while playing, so the glide ends where the track really is.
+      fraction = np.duration > 0 ? Math.min(1, (np.position + (np.playing ? 1000 : 0)) / np.duration) : 0;
     }
 
     setAll('status', status);
@@ -372,16 +427,21 @@
     setAll('pos', position);
     setAll('dur', duration);
     setAll('open-app', 'Open ' + ((mode === 'active' && np.app) || 'Spotify'));
-    $$('[data-np="bar"]').forEach(function (el) { el.style.width = (fraction * 100).toFixed(2) + '%'; });
+    setBars(fraction, mode === 'active' && !!np.playing);
 
     if (art !== lastArt) {
       lastArt = art;
       $$('img[data-np="art"]').forEach(function (img, index) {
+        // Each new cover fades in once it has loaded.
+        img.classList.remove('in');
         img.onerror = function () { img.removeAttribute('src'); };
-        if (index === 0) { img.onload = function () { tintFrom(img); }; }
+        img.onload = function () {
+          img.classList.add('in');
+          if (index === 0) { colourFrom(img); }
+        };
         if (art) { img.src = art; } else { img.removeAttribute('src'); }
       });
-      if (!art) { stage.style.removeProperty('--label'); }
+      if (!art) { clearColour(); }
     }
 
     // If the focused control just disappeared (music stopped, say), move to a sensible one.
@@ -392,8 +452,35 @@
     }
   }
 
-  /** Colours the record's label from the cover, kept within a range that suits the palette. */
-  function tintFrom(img) {
+  var backdropLayer = 0;
+  function setBackdrop(url) {
+    var layers = $$('#backdrop i');
+    backdropLayer = 1 - backdropLayer;
+    layers[backdropLayer].style.backgroundImage = url ? 'url(' + url + ')' : 'none';
+    layers[backdropLayer].classList.toggle('on', !!url);
+    layers[1 - backdropLayer].classList.remove('on');
+  }
+
+  function clearColour() {
+    stage.style.removeProperty('--label');
+    stage.style.removeProperty('--glow');
+    setBackdrop('');
+  }
+
+  /** Takes colour from the cover: a soft wash for behind the player, and a tint for the hero card. */
+  function colourFrom(img) {
+    try {
+      // The wash is the cover shrunk to a few dozen pixels and blurred once, then stretched
+      // over the screen. Doing the blur here, once per track, costs the TV nothing afterwards.
+      var wash = document.createElement('canvas');
+      wash.width = wash.height = 48;
+      var w = wash.getContext('2d');
+      try { w.filter = 'blur(7px) saturate(1.25)'; } catch (ignored) { /* older WebView: the stretch alone still softens it */ }
+      w.drawImage(img, -10, -10, 68, 68);
+      setBackdrop(wash.toDataURL('image/jpeg', 0.86));
+    } catch (e) {
+      setBackdrop('');
+    }
     try {
       var canvas = document.createElement('canvas');
       canvas.width = canvas.height = 8;
@@ -412,10 +499,76 @@
       }
       s = Math.max(0.3, Math.min(0.6, s));
       l = Math.max(0.42, Math.min(0.56, l));
-      stage.style.setProperty('--label', 'hsl(' + h + ',' + Math.round(s * 100) + '%,' + Math.round(l * 100) + '%)');
+      var hsl = h + ',' + Math.round(s * 100) + '%,' + Math.round(l * 100) + '%';
+      stage.style.setProperty('--label', 'hsl(' + hsl + ')');
+      stage.style.setProperty('--glow', 'hsla(' + hsl + ',0.2)');
     } catch (e) {
       stage.style.removeProperty('--label');
+      stage.style.removeProperty('--glow');
     }
+  }
+
+  /* ---------- Look: typeface and accent colour ---------- */
+
+  function applyLook() {
+    Object.keys(FONTS).forEach(function (name) { stage.classList.toggle('font-' + name, name === prefs.font); });
+    stage.style.setProperty('--accent', ACCENTS[prefs.accent]);
+  }
+
+  /* ---------- Weather ---------- */
+
+  var weather = { at: 0, data: null, asked: 0 };
+  var WEATHER_ICONS = {
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>',
+    moon: '<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/>',
+    partly: '<circle cx="8" cy="9" r="3"/><path d="M8 3.5v1M3 9h1M4.5 5.5l.7.7M11.5 5.5l-.7.7"/><path d="M9 19h8a3.5 3.5 0 0 0 .4-7 4.5 4.5 0 0 0-8.6 1.3A3 3 0 0 0 9 19z"/>',
+    cloud: '<path d="M7 18h10a4 4 0 0 0 .5-8 5.5 5.5 0 0 0-10.6 1.5A3.3 3.3 0 0 0 7 18z"/>',
+    fog: '<path d="M7 13h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6 1.4A3 3 0 0 0 7 13z"/><path d="M5 17h14M7 20.5h10"/>',
+    rain: '<path d="M7 14h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6 1.4A3 3 0 0 0 7 14z"/><path d="M8.5 17.5l-1 2.5M12.5 17.5l-1 2.5M16.5 17.5l-1 2.5"/>',
+    snow: '<path d="M7 14h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6 1.4A3 3 0 0 0 7 14z"/><path d="M8 18h.01M12 18h.01M16 18h.01M10 21h.01M14 21h.01"/>',
+    storm: '<path d="M7 14h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6 1.4A3 3 0 0 0 7 14z"/><path d="M12.5 15.5l-2 3h3l-2 3"/>'
+  };
+
+  /** Maps the forecast service's weather code (the WMO scale) to one of the icons above. */
+  function weatherIcon(code, day) {
+    if (code === 0) { return day ? 'sun' : 'moon'; }
+    if (code <= 2) { return day ? 'partly' : 'moon'; }
+    if (code === 3) { return 'cloud'; }
+    if (code === 45 || code === 48) { return 'fog'; }
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) { return 'snow'; }
+    if (code >= 95) { return 'storm'; }
+    return 'rain';
+  }
+
+  function renderWeather() {
+    var fresh = prefs.weather && weather.data && Date.now() - weather.at < 2 * 60 * 60 * 1000;
+    $$('[data-weather]').forEach(function (el) {
+      el.hidden = !fresh;
+      if (!fresh) { return; }
+      var html = '<svg viewBox="0 0 24 24" aria-hidden="true">' + WEATHER_ICONS[weatherIcon(weather.data.code, weather.data.day)] +
+        '</svg><span>' + Math.round(weather.data.temp) + '° ' + esc(PLACE.name) + '</span>';
+      if (el._html !== html) { el._html = html; el.innerHTML = html; }
+    });
+  }
+
+  function loadWeather() {
+    if (!prefs.weather) { renderWeather(); return; }
+    if (Date.now() - weather.asked < 20 * 60 * 1000) { renderWeather(); return; }
+    weather.asked = Date.now();
+    if (window.MockWeather) { weather.data = window.MockWeather; weather.at = Date.now(); renderWeather(); return; }
+    if (!window.fetch) { return; }
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=' + PLACE.lat + '&longitude=' + PLACE.lon +
+        '&current=temperature_2m,weather_code,is_day')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        var c = d && d.current;
+        if (c && typeof c.temperature_2m === 'number') {
+          weather.data = { temp: c.temperature_2m, code: c.weather_code, day: !!c.is_day };
+          weather.at = Date.now();
+        }
+        renderWeather();
+      })
+      .catch(function () { weather.asked = Date.now() - 15 * 60 * 1000; renderWeather(); }); // try again in five minutes
   }
 
   function updateAwake() {
@@ -531,7 +684,7 @@
       cell.appendChild(caption);
       grid.appendChild(cell);
     });
-    $('#grid-scroll').scrollTop = 0;
+    slide($('#grid-inner'), 'y', 0);
   }
 
   function togglePin(pkg) {
@@ -600,22 +753,39 @@
     row.className = 'row';
     row.dataset.zone = id;
     row.innerHTML = '<div class="row-head"><h2>' + esc(heading) + '</h2><span>' + esc(aside) + '</span></div>' +
-      '<div class="scroller"></div>';
-    var scroller = $('.scroller', row);
-    cards.forEach(function (card) { scroller.appendChild(card); });
+      '<div class="scroller"><div class="track"></div></div>';
+    var track = $('.track', row);
+    cards.forEach(function (card) { track.appendChild(card); });
     return row;
+  }
+
+  /** Every app that is not pinned, plus TV settings, so nothing is more than a row away. */
+  function makeAppsRow() {
+    var tiles = state.apps
+      .filter(function (app) { return state.pins.indexOf(app.pkg) < 0; })
+      .map(makeTile);
+    var settings = document.createElement('button');
+    settings.className = 'tile f';
+    settings.dataset.act = 'settings';
+    settings.dataset.key = 'settings';
+    settings.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/>' +
+      '<circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span class="name">TV settings</span>';
+    tiles.push(settings);
+    return makeRow('apps', 'Apps', 'Hold OK to put an app on Home', tiles);
   }
 
   function loadFeed() {
     state.status = callJson('getStatus', {});
     var watchNext = state.status.tvListings ? callJson('getWatchNext', []) : [];
     var previews = state.status.tvListings ? callJson('getPreviews', []) : [];
-    var sig = JSON.stringify([watchNext, previews, state.pins, !!state.status.tvListings]);
+    var sig = JSON.stringify([watchNext, previews, state.pins, !!state.status.tvListings,
+      state.apps.map(function (app) { return app.pkg; })]);
     if (sig === state.feedSig) { return; }
     state.feedSig = sig;
 
     var feed = $('#feed');
-    var focusedKey = feed.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+    var focused = feed.contains(document.activeElement) ? document.activeElement : null;
+    var focusedKey = focused ? (focused.dataset.key || focused.dataset.pkg || null) : null;
     feed.innerHTML = '';
 
     if (!state.status.tvListings) {
@@ -645,8 +815,11 @@
         channel.items.map(function (item) { return makeCard(item, 'pv:' + item.id, false); })));
     });
 
+    feed.appendChild(makeAppsRow());
+
     if (focusedKey) {
-      var again = $('[data-key="' + focusedKey + '"]', feed);
+      var again = $('[data-key="' + focusedKey + '"]', feed) || $('[data-pkg="' + focusedKey + '"]', feed) ||
+        $('#pins [data-pkg="' + focusedKey + '"]');
       if (state.view === 'home' && !state.panel) { focus(again || defaultFocus()); }
     }
   }
@@ -665,7 +838,7 @@
   }
 
   function renderPanel() {
-    var body = $('#panel-body');
+    var body = $('#panel-inner');
     var active = document.activeElement;
     var focusedOpt = body.contains(active) ? (active.dataset.opt || active.dataset.setup || active.dataset.act || active.dataset.input) : null;
     var status = state.status = callJson('getStatus', {});
@@ -696,6 +869,20 @@
       });
       html += '</div></div>';
     }
+
+    html += '<div class="group" data-zone="font"><h2>Typeface</h2><div class="options">' +
+      Object.keys(FONTS).map(function (name) { return option('font', name, FONTS[name], prefs.font === name); }).join('') +
+      '</div></div>';
+
+    html += '<div class="group" data-zone="accent"><h2>Accent colour</h2><div class="options">' +
+      Object.keys(ACCENTS).map(function (name) {
+        return '<button class="opt f" data-opt="accent:' + name + '" aria-pressed="' + (prefs.accent === name ? 'true' : 'false') +
+          '"><i class="dot" style="background:' + ACCENTS[name] + '"></i>' + name.charAt(0).toUpperCase() + name.slice(1) + '</button>';
+      }).join('') + '</div></div>';
+
+    html += '<div class="group" data-zone="weather"><h2>Weather for ' + esc(PLACE.name) + '</h2><div class="options">' +
+      option('weather', 'on', 'Show', prefs.weather) +
+      option('weather', 'off', 'Hide', !prefs.weather) + '</div></div>';
 
     html += '<div class="group" data-zone="shortcuts"><h2>Shortcuts</h2><div class="options">' +
       '<button class="opt f" data-act="apps">All apps</button>' +
@@ -736,7 +923,7 @@
     state.panelReturn = document.activeElement;
     state.panel = true;
     stage.classList.add('panel-open');
-    $('#panel-body').scrollTop = 0;
+    slide($('#panel-inner'), 'y', 0);
     renderPanel();
   }
 
@@ -765,6 +952,19 @@
     } else if (group === 'idle') {
       prefs.idleMin = parseInt(value, 10);
       store.set('idleMin', prefs.idleMin);
+    } else if (group === 'font' && FONTS[value]) {
+      prefs.font = value;
+      store.set('font', value);
+      applyLook();
+    } else if (group === 'accent' && ACCENTS[value]) {
+      prefs.accent = value;
+      store.set('accent', value);
+      applyLook();
+    } else if (group === 'weather') {
+      prefs.weather = value === 'on';
+      store.set('weather', prefs.weather);
+      weather.asked = 0;
+      loadWeather();
     }
     renderPanel();
   }
@@ -816,7 +1016,7 @@
   }
 
   function hold(el) {
-    if (state.view === 'allapps' && el.dataset.pkg) { togglePin(el.dataset.pkg); }
+    if (el.dataset.pkg && !state.panel) { togglePin(el.dataset.pkg); }
   }
 
   /* ---------- Keys ---------- */
@@ -890,6 +1090,7 @@
     if (!state.visible) { return; }
     pull();
     renderSleepLabel();
+    loadWeather();
 
     var np = state.np || {};
     var idleFor = Date.now() - state.lastInput;
@@ -928,7 +1129,15 @@
           loadApps();
           loadFeed();
           pull();
+          loadWeather();
           if (state.panel) { renderPanel(); }
+          else if (state.view === 'home') {
+            // Coming back from another app: Home settles into place instead of just appearing.
+            var home = $('#home');
+            home.classList.remove('arrive');
+            void home.offsetWidth;
+            home.classList.add('arrive');
+          }
           break;
         case 'permissions':
           state.feedSig = null;
@@ -957,12 +1166,21 @@
     if (el) { noteInput(); focus(el); activate(el); }
   });
 
+  // Browsers scroll a hidden-overflow box to bring a focused item into view. The lists here are
+  // moved with transforms instead, so any such scroll is undone straight away.
+  document.addEventListener('scroll', function (e) {
+    var el = e.target;
+    if (el && el !== document && (el.scrollTop || el.scrollLeft)) { el.scrollTop = 0; el.scrollLeft = 0; }
+  }, true);
+
   call('setPref', 'autoOpen', prefs.autoOpen ? '1' : '0');
-  $('#home').classList.add('on');
+  applyLook();
+  $('#home').classList.add('on', 'arrive');
   renderClock();
   loadApps();
   pull();
   loadFeed();
+  loadWeather();
   var first = call('takePendingView');
   if (first === 'player') { show('player'); } else { focus(defaultFocus()); }
   setInterval(tick, 1000);

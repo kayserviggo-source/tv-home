@@ -59,6 +59,9 @@
 
   var sleep = { mode: 'off', at: 0, minutes: 0 };
 
+  // A sample reading, so the preview does not depend on the network.
+  if (param('weather', '1') === '1') { window.MockWeather = { temp: 6.4, code: 3, day: false }; }
+
   window.Native = {
     takePendingView: function () { return param('view', ''); },
     setSleep: function (mode) {

@@ -59,8 +59,11 @@ final class AssetClient extends WebViewClient {
             }
             InputStream in = context.getAssets().open("ui/" + file);
             String type = mime(file);
+            // Never let an older copy of the interface outlive an update of the app.
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Cache-Control", file.endsWith(".woff2") ? "max-age=86400" : "no-cache");
             return new WebResourceResponse(type, type.startsWith("text/") || type.contains("javascript")
-                    ? "utf-8" : null, in);
+                    ? "utf-8" : null, 200, "OK", headers, in);
         } catch (IOException | RuntimeException e) {
             return notFound();
         }

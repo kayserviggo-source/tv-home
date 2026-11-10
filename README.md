@@ -14,8 +14,13 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
   large clock with the current track.
 - **Continue watching.** What Netflix, SVT Play, YouTube and other apps publish for TV home
   screens. Each app decides what it shares, so this can be fuller or emptier per app.
-- **Apps.** Four pinned apps on Home; hold OK on an app under All apps to pin or unpin it.
-- **Control Centre.** Sleep timer, HDMI inputs, TV settings, and setup status. The Menu
+- **Apps.** Four pinned apps on Home and a row with the rest; hold OK on any app to pin or
+  unpin it.
+- **Look.** Three typefaces and four accent colours to choose from, and the player and clock
+  screen take their background colour from the current cover.
+- **Weather.** Temperature and conditions beside the clock, from open-meteo.com. The place is
+  set in `PLACE` at the top of `app.js`.
+- **Control Centre.** Sleep timer, HDMI inputs, look, TV settings, and setup status. The Menu
   button on the remote opens it from anywhere in TV Home.
 
 Not in this version: Spotify playlists, liking tracks, the queue, and moving playback between
@@ -88,4 +93,4 @@ Press Home on the remote. Control Centre → Setup shows which of the three perm
 
 ## Fonts
 
-Fraunces, Instrument Sans and DM Mono, each under the SIL Open Font License 1.1.
+Inter, Manrope and Instrument Serif, each under the SIL Open Font License 1.1.
