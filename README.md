@@ -5,6 +5,11 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
 
 ## What it does
 
+- **Home.** A shelf above a dock of apps, laid out like Apple TV. The shelf shows the music
+  (record, sleeve and controls); move to Netflix, YouTube or SVT Play in the dock and it shows
+  what that app has lined up instead, and the screen takes its colours from the poster in
+  focus. Up goes into the shelf, Down comes back to the app. With nothing playing, the shelf
+  is a greeting with the date.
 - **Now playing.** Shows the current track from Spotify (or any app that plays media): cover,
   title, artist, progress, and play/pause/skip. It reads this from Android's media sessions,
   so it needs no Spotify login.
@@ -17,9 +22,11 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
 - **Clock screen.** After a couple of minutes without a button press while music plays, a
   large clock with the current track.
 - **Continue watching.** What Netflix, SVT Play, YouTube and other apps publish for TV home
-  screens. Each app decides what it shares, so this can be fuller or emptier per app.
-- **Apps.** Four pinned apps on Home and a row with the rest; hold OK on any app to pin or
-  unpin it.
+  screens, on each app's shelf. Each app decides what it shares, so this can be fuller or
+  emptier per app. Spotify's own suggestion rows are left out: its shelf is the music.
+- **Apps.** The dock holds the apps you put on Home, then All apps and Control Centre. Hold OK
+  on an app in the dock to move it (left and right, Down takes it off Home, OK puts it down).
+  On All apps, hold OK on an app to add it to Home or take it off.
 - **Look.** Inter throughout. The accent colour follows the cover that is playing, or is one
   of five fixed colours; the player and clock screen take their background from the cover.
 - **Updates.** The app checks this repository's Releases every few hours, downloads a newer
@@ -43,6 +50,11 @@ devices (these need a Spotify developer login), and Ambilight control.
   service that answers the Home button and steps in when the stock home screen appears. If
   TV Home crashes, it leaves the Home button alone for two minutes so the stock home screen
   stays reachable.
+- That service runs in a small process of its own, so a crash in the main app, or Android
+  closing it for memory, does not take the Home button with it. Android still switches the
+  service off if the app is force-stopped. With the optional permission below, TV Home switches
+  it back on by itself (when it opens, after the TV starts and after an update); without it,
+  Control Centre → Setup says when the Home button has stopped.
 
 ## Building
 
@@ -76,6 +88,9 @@ adb shell pm grant se.tvhome.launcher android.permission.READ_TV_LISTINGS
 # Let it install its own updates from GitHub
 adb shell appops set se.tvhome.launcher REQUEST_INSTALL_PACKAGES allow
 
+# Optional: let it switch the Home button back on by itself if Android turns it off
+adb shell pm grant se.tvhome.launcher android.permission.WRITE_SECURE_SETTINGS
+
 # Make it the home screen (answers the Home button, replaces the stock home screen)
 adb shell settings get secure enabled_accessibility_services
 ```
@@ -99,9 +114,10 @@ Press Home on the remote. Control Centre → Setup shows which of the three perm
 ## Going back
 
 - Turn it off: TV Settings → Accessibility → TV Home: Home button → off. The stock home
-  screen answers the Home button again.
+  screen answers the Home button again. TV Home takes this as your choice and does not switch
+  it back on.
 - Remove it: `adb uninstall se.tvhome.launcher`.
 
 ## Fonts
 
-Inter, Manrope and Instrument Serif, each under the SIL Open Font License 1.1.
+Inter, under the SIL Open Font License 1.1.

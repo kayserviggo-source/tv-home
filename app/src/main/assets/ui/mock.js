@@ -137,6 +137,12 @@
         });
       }
       return JSON.stringify([
+        { pkg: 'com.spotify.tv.android', app: 'Spotify', name: 'Made for you', items: items('com.spotify.tv.android',
+          ['Daily Mix 1', 'Discover Weekly', 'Release Radar']) },
+        { pkg: 'com.netflix.ninja', app: 'Netflix', name: 'Top picks for you', items: items('com.netflix.ninja',
+          ['The Lighthouse Keeper', 'Cold Harbour', 'Seven Bridges', 'After the Rain', 'Night Shift']) },
+        { pkg: 'se.svt.android.svtplay', app: 'SVT Play', name: 'Populärt just nu', items: items('se.svt.android.svtplay',
+          ['Skärgårdsliv', 'Fjällen i vinter', 'Kustvägen', 'Gamla hus']) },
         { pkg: 'sample.films', app: 'Film Club', name: 'New this week', items: items('sample.films',
           ['Paper Lanterns', 'Salt Road', 'Understudy', 'North of Nine', 'Quiet Hours']) },
         { pkg: 'com.google.android.youtube.tv', app: 'YouTube', name: 'Recommended', items: items('com.google.android.youtube.tv',
@@ -150,7 +156,9 @@
     openInput: function (id) { log.push('input ' + id); return true; },
     openSettings: function (which) { log.push('settings ' + which); return true; },
     getStatus: function () {
-      return JSON.stringify({ nowPlayingAccess: np.access, homeButton: mode !== 'setup', tvListings: listings,
+      var home = param('home', 'on');
+      return JSON.stringify({ nowPlayingAccess: np.access, homeButton: mode !== 'setup' && home !== 'off',
+        homeButtonRunning: home === 'on', canFixHomeButton: param('fix', '1') === '1', tvListings: listings,
         version: 'preview', device: 'Sample TV', android: '11', pkg: 'se.tvhome.launcher' });
     },
     requestTvListings: function () { listings = true; setTimeout(function () { window.TVHome.emit('permissions', ''); }, 50); },
@@ -158,7 +166,8 @@
     getUpdate: function () { return JSON.stringify(update); },
     checkUpdate: function (force) { log.push('check ' + force); },
     installUpdate: function () { log.push('install'); update.state = 'installing'; },
-    keepAwake: function (on) { log.push('awake ' + on); }
+    keepAwake: function (on) { log.push('awake ' + on); },
+    fixHomeButton: function () { log.push('fix home'); return param('fix', '1') === '1'; }
   };
 
   window.Mock = {

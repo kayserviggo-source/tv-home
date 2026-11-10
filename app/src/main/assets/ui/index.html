@@ -9,65 +9,61 @@
 <body>
 <div id="stage" data-view="home">
 
-  <!-- Colour taken from the current cover; shown behind the player and the clock screen -->
-  <div id="backdrop" aria-hidden="true"><i></i><i></i></div>
+  <!-- Colour taken from the cover that is playing, or the poster in focus. Each layer is a tiny
+       blurred picture stretched over the whole screen, so it costs the TV nothing to show. -->
+  <div id="backdrop" aria-hidden="true"><canvas width="48" height="27"></canvas><canvas width="48" height="27"></canvas></div>
 
-  <!-- Home -->
+  <!-- Home: a shelf above a dock of apps. The shelf shows the music, or what the app in focus
+       has lined up (Continue watching and the like). -->
   <section id="home" class="view">
-    <header class="topbar">
-      <div class="clock">
-        <span class="time" data-clock="time"></span><span class="date" data-clock="date"></span>
-        <span class="weather" data-weather hidden></span>
-      </div>
+    <header class="topbar home-top">
       <div class="top-actions" data-zone="top">
         <button class="pill f update-pill" data-act="update" hidden><i class="dot"></i><span>Update ready</span></button>
-        <button class="round f" id="btn-apps" aria-label="All apps">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>
-        </button>
-        <button class="round f" id="btn-panel" aria-label="Control Centre">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
-        </button>
+      </div>
+      <div class="clock">
+        <span class="weather" data-weather hidden></span><span class="time" data-clock="time"></span>
       </div>
     </header>
 
-    <div class="rows" id="rows">
-      <div class="rows-inner" id="rows-inner">
-        <div class="hero-row" data-zone="hero" data-columns>
-          <div class="now" id="now">
-            <div class="sleeve-wrap">
-              <div class="record" aria-hidden="true">
-                <div class="disc"></div><div class="sheen"></div>
-                <div class="label"><img data-art-label alt=""></div>
-                <div class="ring"></div><div class="hub"></div>
-              </div>
-              <div class="sleeve"><img data-art alt=""><img data-art alt=""></div>
-            </div>
-            <div class="now-info">
-              <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span></div>
-              <div class="now-title" data-np="title"></div>
-              <div class="now-artist" data-np="artist"></div>
-              <div class="now-hint" data-np="hint"></div>
-              <div class="progress">
-                <div class="bar"><i data-np="bar"></i></div>
-                <div class="times"><span data-np="pos"></span><span data-np="dur"></span></div>
-              </div>
-              <div class="controls">
-                <button class="ctl f" data-act="prev" aria-label="Previous track"><svg viewBox="0 0 24 24" aria-hidden="true" class="solid"><path d="M19 5v14l-10-7z"/><path d="M6 5v14" class="stroke"/></svg></button>
-                <button class="ctl big f" data-act="toggle" aria-label="Play or pause">
-                  <svg viewBox="0 0 24 24" aria-hidden="true" class="ico-pause"><path d="M8 5v14M16 5v14"/></svg>
-                  <svg viewBox="0 0 24 24" aria-hidden="true" class="ico-play solid"><path d="M7 4.5v15l12.5-7.5z"/></svg>
-                </button>
-                <button class="ctl f" data-act="next" aria-label="Next track"><svg viewBox="0 0 24 24" aria-hidden="true" class="solid"><path d="M5 5v14l10-7z"/><path d="M18 5v14" class="stroke"/></svg></button>
-                <button class="pill f push" data-act="player">Open player</button>
-                <button class="pill f only-idle" data-act="music">Open Spotify</button>
-                <button class="pill f only-setup" data-act="panel">Finish setup</button>
-              </div>
-            </div>
+    <div class="shelf" id="shelf">
+      <!-- The music -->
+      <div class="shelf-layer shelf-music on" id="shelf-music" data-zone="music">
+        <div class="sleeve-wrap shelf-sleeve">
+          <div class="record" aria-hidden="true">
+            <div class="disc"></div><div class="sheen"></div>
+            <div class="label"><img data-art-label alt=""></div>
+            <div class="ring"></div><div class="hub"></div>
           </div>
-          <div class="pins" id="pins"></div>
+          <div class="sleeve"><img data-art alt=""><img data-art alt=""></div>
         </div>
-        <div id="feed"></div>
+        <div class="music-info">
+          <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span></div>
+          <div class="music-title" data-np="htitle" data-long="22"></div>
+          <div class="music-artist" data-np="artist"></div>
+          <div class="music-hint" data-np="hint"></div>
+          <div class="bar"><i data-np="bar"></i></div>
+          <div class="controls">
+            <button class="ctl f" data-act="prev" aria-label="Previous track"><svg viewBox="0 0 24 24" aria-hidden="true" class="solid"><path d="M19 5v14l-10-7z"/><path d="M6 5v14" class="stroke"/></svg></button>
+            <button class="ctl big f" data-act="toggle" aria-label="Play or pause">
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="ico-pause"><path d="M8 5v14M16 5v14"/></svg>
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="ico-play solid"><path d="M7 4.5v15l12.5-7.5z"/></svg>
+            </button>
+            <button class="ctl f" data-act="next" aria-label="Next track"><svg viewBox="0 0 24 24" aria-hidden="true" class="solid"><path d="M5 5v14l10-7z"/><path d="M18 5v14" class="stroke"/></svg></button>
+            <button class="pill f glass" data-act="player"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/></svg><span>Player</span></button>
+            <button class="pill f glass only-idle" data-act="music">Open Spotify</button>
+            <button class="pill f glass only-setup" data-act="panel">Finish setup</button>
+          </div>
+        </div>
       </div>
+      <!-- What the app in focus has lined up; filled in when an app is focused -->
+      <div class="shelf-layer shelf-app" data-zone="posters"></div>
+      <div class="shelf-layer shelf-app" data-zone="posters"></div>
+    </div>
+
+    <!-- The apps -->
+    <div class="dock" data-zone="dock">
+      <div class="track" id="dock"></div>
+      <div class="dock-hint" id="dock-hint">Left and right to move it · Down to take it off Home · OK when done</div>
     </div>
   </section>
 
@@ -90,7 +86,7 @@
       </div>
       <div class="player-info">
         <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span></div>
-        <h1 class="player-title" data-np="title"></h1>
+        <h1 class="player-title" data-np="title" data-long="18"></h1>
         <div class="player-artist" data-np="artist"></div>
         <div class="player-source" data-np="source"></div>
         <div class="progress">
@@ -136,7 +132,7 @@
         </div>
         <div class="ambient-text">
           <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span></div>
-          <div class="ambient-title" data-np="title"></div>
+          <div class="ambient-title" data-np="title" data-long="18"></div>
           <div class="ambient-artist" data-np="artist"></div>
           <div class="bar"><i data-np="bar"></i></div>
         </div>
@@ -149,7 +145,7 @@
   <section id="allapps" class="view">
     <header class="topbar">
       <h1 class="page-title">All apps</h1>
-      <div class="page-hint">Hold OK on an app to put it on Home or take it off</div>
+      <div class="page-hint">Hold OK on an app to add it to Home or take it off</div>
     </header>
     <div class="grid-scroll" id="grid-scroll">
       <div class="scroll-inner" id="grid-inner">

@@ -624,14 +624,11 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
             return;
         }
         main.postDelayed(() -> {
-            Intent intent = new Intent(app, MainActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            intent.putExtra(MainActivity.EXTRA_VIEW, "player");
-            try {
-                app.startActivity(intent);
-            } catch (RuntimeException ignored) {
-                // Android refused the background start; the Spotify app simply stays in front.
-            }
+            // Android lets only the Home button's process start TV Home from the background, so
+            // the request goes through it.
+            Intent open = new Intent(App.ACTION_OPEN).setPackage(app.getPackageName())
+                    .putExtra(MainActivity.EXTRA_VIEW, "player");
+            app.sendBroadcast(open, App.PERMISSION_INTERNAL);
         }, 1200);
     }
 }

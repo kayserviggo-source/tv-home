@@ -44,7 +44,10 @@
     }
   };
 
-  var MAX_PINS = 4;
+  var MAX_PINS = 12;
+  /* Apps whose shelf is the music rather than what they share. Spotify's shared rows are its
+     own suggestions, which have nothing to do with what is playing. */
+  var MUSIC_APPS = /^com\.spotify\.|sonos|tidal|deezer|soundcloud|music|\bradio\b/i;
   /* Accent colours. "cover" takes its colour from the album that is playing; the rest are fixed,
      chosen to sit well on the warm dark background. */
   var ACCENTS = {
@@ -75,7 +78,13 @@
     apps: [],
     pins: [],
     status: {},
-    feedSig: null,
+    content: { watchNext: [], previews: [] },
+    contentSig: null,
+    shelf: 'music',         // what the shelf shows: 'music', an app's package, or 'ask:' + package
+    shelfFocus: {},         // the poster last focused in each app's shelf
+    dockKey: null,          // the dock tile last focused
+    lastDir: '',
+    moving: null,           // the dock tile being moved, if any
     lastInput: Date.now(),
     lastCommandAt: 0,
     stoppedSince: 0,
@@ -112,7 +121,7 @@
   /* ---------- Focus: moving around with the remote ---------- */
 
   function scopeRoot() { return state.panel ? $('#panel') : $('#' + state.view); }
-  function isShown(el) { return el.offsetParent !== null && !el.disabled; }
+  function isShown(el) { return el.offsetParent !== null && !el.disabled && !el.closest('.shelf-layer:not(.on)'); }
   function focusables() { return $$('.f', scopeRoot()).filter(isShown); }
 
   function defaultFocus() {
@@ -121,9 +130,7 @@
     if (state.panel) {
       pick = $('.opt[aria-pressed="true"], .swatch[aria-pressed="true"]', root);
     } else if (state.view === 'home') {
-      pick = $('#now [data-act="toggle"]');
-      if (!pick || !isShown(pick)) { pick = $$('#now .pill.f').filter(isShown)[0] || null; }
-      if (!pick || !isShown(pick)) { pick = $('#pins .f'); }
+      pick = (state.dockKey && $('#dock [data-key="' + state.dockKey + '"]')) || $('#dock .app');
     } else if (state.view === 'player') {
       pick = $('#player [data-act="toggle"]');
       if (!pick || !isShown(pick)) { pick = $('#player [data-act="home"]'); }
@@ -136,6 +143,7 @@
     if (!el) { return; }
     try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
     reveal(el);
+    focusChanged(el);
   }
 
   function rememberFocus() {
@@ -173,26 +181,17 @@
   function reveal(el) {
     var track = el.closest('.track');
     if (track) {
-      var centred = offsetWithin(el, track).x - (VIEW_WIDTH - el.offsetWidth) / 2;
-      var furthest = Math.max(0, track.scrollWidth - VIEW_WIDTH);
-      slide(track, 'x', Math.min(furthest, centred));
-    }
-    var rows = el.closest('.rows-inner');
-    if (rows) {
-      var row = el.closest('.row');
-      var top = 0;
-      if (row) {
-        // Rows snap to the top. The last row keeps the one before it on screen when both fit,
-        // so the bottom of the list is not mostly empty.
-        var anchor = row;
-        var before = row.previousElementSibling;
-        if (!row.nextElementSibling && before && before.classList.contains('row') &&
-            row.offsetTop + row.offsetHeight - (before.offsetTop - 28) <= rows.parentElement.clientHeight - 40) {
-          anchor = before;
-        }
-        top = anchor.offsetTop - 28;
-      }
-      slide(rows, 'y', top);
+      // A row moves only when the item would reach its edge, and then just far enough that the
+      // next item still shows beside it, so there is always something to move on to.
+      var x = track._x || 0;
+      var left = offsetWithin(el, track).x;
+      var right = left + el.offsetWidth;
+      var lead = 150;
+      if (left - x < 0) { x = left - lead; }
+      if (right - x > VIEW_WIDTH - lead) { x = right - VIEW_WIDTH + lead; }
+      var last = track.lastElementChild;
+      var end = last ? offsetWithin(last, track).x + last.offsetWidth : 0;
+      slide(track, 'x', Math.min(x, Math.max(0, end - VIEW_WIDTH)));
       return;
     }
     var box = el.closest('.scroll-inner');
@@ -221,6 +220,8 @@
     if (!items.length) { return; }
     var current = document.activeElement;
     if (!current || items.indexOf(current) < 0) { focus(defaultFocus() || items[0]); return; }
+    state.lastDir = direction;
+    if (!state.panel && state.view === 'home' && homeMove(current, direction)) { return; }
 
     var a = layoutRect(current);
     var zone = current.closest('[data-zone]');
@@ -275,7 +276,40 @@
       });
     }
 
-    if (best) { focus(best); }
+    if (best) { focus(best); } else { bump(current, direction); }
+  }
+
+  /** Nothing further that way: the item gives a small nudge, so the press is not lost. */
+  function bump(el, direction) {
+    var name = 'bump-' + direction;
+    el.classList.remove('bump-left', 'bump-right', 'bump-up', 'bump-down');
+    void el.offsetWidth;
+    el.classList.add(name);
+    clearTimeout(el._bump);
+    el._bump = setTimeout(function () { el.classList.remove(name); }, 360);
+  }
+
+  /** Home's own moves between the top bar, the shelf and the dock. Up from an app goes into
+      that app's shelf; down from the shelf goes back to the app it belongs to. */
+  function homeMove(current, direction) {
+    var inDock = !!current.closest('.dock');
+    var inShelf = !!current.closest('#shelf');
+    var inTop = !!current.closest('.topbar');
+    if (inDock && direction === 'up') {
+      setShelf(shelfOwner(current), true);
+      var entry = shelfEntry();
+      if (entry) { focus(entry); } else { bump(current, 'up'); }
+      return true;
+    }
+    if (inShelf && direction === 'down') {
+      focus(defaultFocus());
+      return true;
+    }
+    if (inTop && direction === 'down') {
+      focus(shelfEntry() || defaultFocus());
+      return true;
+    }
+    return false;
   }
 
   /* ---------- Views ---------- */
@@ -283,6 +317,7 @@
   function show(view) {
     if (state.view === view) { return; }
     rememberFocus();
+    stopMoving();
     if (view === 'ambient') { state.returnView = state.view; }
     if (view === 'allapps') { renderAllApps(); }
     state.view = view;
@@ -295,6 +330,7 @@
       if (view === 'allapps') { state.lastFocus.allapps = null; }
       restoreFocus();
     }
+    updateBackdrop();
     updateAwake();
   }
 
@@ -302,16 +338,26 @@
     if (state.view === 'ambient') { show(state.returnView || 'home'); }
   }
 
+  /** Home, as the Home button leaves it: the first app in focus and the music on the shelf. */
   function goHome() {
     closePanel();
+    stopMoving();
     if (state.view !== 'home') { show('home'); }
-    slide($('#rows-inner'), 'y', 0);
-    focus(defaultFocus());
+    var first = $('#dock .app');
+    slide($('#dock'), 'x', 0);
+    state.dockKey = first ? first.dataset.key : null;
+    focus(first || defaultFocus());
+    setShelf(shelfOwner(first), true);
   }
 
   function back() {
+    if (state.moving) { stopMoving(); return; }
     if (state.panel) { closePanel(); return; }
     if (state.view === 'ambient') { leaveAmbient(); return; }
+    if (state.view === 'home' && document.activeElement && !document.activeElement.closest('.dock')) {
+      focus(defaultFocus());
+      return;
+    }
     goHome();
   }
 
@@ -454,7 +500,7 @@
   /** A new track: let its title and artist rise into place rather than just switch. */
   var swapTimer = 0;
   function announceTrack() {
-    var boxes = $$('.now-info, .player-info, .ambient-text');
+    var boxes = $$('.music-info, .player-info, .ambient-text');
     boxes.forEach(function (box) { box.classList.remove('swap'); });
     void stage.offsetWidth; // restart the animation if one is still running
     boxes.forEach(function (box) { box.classList.add('swap'); });
@@ -462,15 +508,19 @@
     swapTimer = setTimeout(function () { boxes.forEach(function (box) { box.classList.remove('swap'); }); }, 900);
   }
 
-  function setAll(name, text, longAt) {
+  function setAll(name, text) {
     $$('[data-np="' + name + '"]').forEach(function (el) {
       if (el.textContent !== text) { el.textContent = text; }
-      if (longAt) {
-        // The player and clock screen have room for a few more letters before wrapping.
-        var limit = el.classList.contains('player-title') || el.classList.contains('ambient-title') ? longAt + 2 : longAt;
-        el.classList.toggle('long', text.length > limit);
-      }
+      // Long titles drop to a smaller size over two lines; each place says how many letters fit.
+      if (el.dataset.long) { el.classList.toggle('long', text.length > +el.dataset.long); }
     });
+  }
+
+  function greeting() {
+    var hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) { return 'Good morning'; }
+    if (hour >= 12 && hour < 18) { return 'Good afternoon'; }
+    return 'Good evening';
   }
 
   var lastFraction = 0;
@@ -494,18 +544,19 @@
     stage.classList.toggle('playing', mode === 'active' && !!np.playing);
     stage.classList.toggle('paused', !(mode === 'active' && np.playing));
 
-    var title, artist = '', status, hint = '', source = '', art = '', position = '', duration = '', fraction = 0;
+    var title, homeTitle, artist = '', status, hint = '', source = '', art = '', position = '', duration = '', fraction = 0;
     if (mode === 'setup') {
       status = 'Setup';
-      title = 'Almost there';
+      title = homeTitle = 'Almost there';
       hint = 'One permission is missing before your music can show up here.';
     } else if (mode === 'idle') {
-      status = 'Music';
+      status = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
       title = 'Nothing playing';
-      hint = 'Start something on your phone and it shows up here.';
+      homeTitle = greeting();
+      hint = 'Start some music on your phone and it shows up here.';
     } else {
       status = (np.playing ? 'Now playing' : 'Paused') + (np.room ? ' · ' + np.room : '');
-      title = np.title || '';
+      title = homeTitle = np.title || '';
       artist = np.artist || '';
       source = [np.album, np.app].filter(function (x) { return x && x !== np.title; }).join(' · ');
       art = np.art || '';
@@ -516,7 +567,8 @@
     }
 
     setAll('status', status);
-    setAll('title', title, 16);
+    setAll('title', title);
+    setAll('htitle', homeTitle);
     setAll('artist', artist);
     setAll('hint', hint);
     setAll('source', source);
@@ -528,6 +580,7 @@
     $$('[data-room]').forEach(function (el) { el.hidden = !(mode === 'active' && np.room); });
     setBars(fraction, mode === 'active' && !!np.playing);
     setArt(art);
+    if ((mode === 'active' && np.playing ? np.pkg || '' : '') !== soundingPkg) { markSounding(); }
 
     // If the focused control just disappeared (music stopped, say), move to a sensible one.
     var active = document.activeElement;
@@ -537,19 +590,75 @@
     }
   }
 
-  var backdropLayer = 0;
-  function setBackdrop(url) {
-    var layers = $$('#backdrop i');
-    backdropLayer = 1 - backdropLayer;
-    layers[backdropLayer].style.backgroundImage = url ? 'url(' + url + ')' : 'none';
-    layers[backdropLayer].classList.toggle('on', !!url);
-    layers[1 - backdropLayer].classList.remove('on');
+  /* ---------- Backdrop: the colours of the cover, or of the poster in focus ---------- */
+
+  // What each part of the interface wants behind it: { key, img } or null.
+  var wash = { music: null, poster: null };
+  var backdrop = { layer: 0, key: null };
+
+  /** Draws a picture into the hidden layer, blurred, and fades it in over the shown one. The
+      layers are canvases, so a poster from another site can be shown even though its pixels
+      cannot be read. */
+  function paintBackdrop(entry) {
+    var key = entry ? entry.key : '';
+    if (key === backdrop.key) { return; }
+    backdrop.key = key;
+    var layers = $$('#backdrop canvas');
+    var next = layers[1 - backdrop.layer];
+    if (entry) {
+      try {
+        var ctx = next.getContext('2d');
+        var w = next.width, h = next.height;
+        var iw = entry.img.naturalWidth || entry.img.width || 1;
+        var ih = entry.img.naturalHeight || entry.img.height || 1;
+        var s = Math.max((w + 10) / iw, (h + 10) / ih); // fill the frame, with spare for the blur
+        ctx.clearRect(0, 0, w, h);
+        try { ctx.filter = 'blur(3px) saturate(1.3)'; } catch (ignored) { /* older WebView: the stretch alone softens it */ }
+        ctx.drawImage(entry.img, (w - iw * s) / 2, (h - ih * s) / 2, iw * s, ih * s);
+        try { ctx.filter = 'none'; } catch (ignored) { /* as above */ }
+      } catch (e) {
+        entry = null;
+      }
+    }
+    backdrop.layer = 1 - backdrop.layer;
+    next.classList.toggle('on', !!entry);
+    layers[1 - backdrop.layer].classList.remove('on');
+  }
+
+  /** Home shows the poster's colours while an app's shelf is up; everywhere else, the cover's. */
+  function updateBackdrop() {
+    var posterShelf = state.view === 'home' && state.shelf !== 'music' && state.shelf.indexOf('ask:') !== 0;
+    if (!posterShelf) { paintBackdrop(wash.music); return; }
+    if (wash.poster && wash.poster.key === 'poster:' + posterWash.url) { paintBackdrop(wash.poster); }
+    else if (!posterWash.url) { paintBackdrop(wash.music); } // no picture to take colour from
+    // Otherwise the poster is still loading: keep what is showing rather than dip to nothing.
+  }
+
+  var posterWash = { url: null, timer: 0 };
+  /** Takes the backdrop from a poster, once it has loaded. Quick moves along a row only change
+      it when they stop. */
+  function washFromPoster(url) {
+    if (url === posterWash.url) { return; }
+    posterWash.url = url;
+    clearTimeout(posterWash.timer);
+    if (!url) { wash.poster = null; updateBackdrop(); return; }
+    posterWash.timer = setTimeout(function () {
+      var img = new Image();
+      img.onload = function () {
+        if (posterWash.url !== url) { return; }
+        wash.poster = { key: 'poster:' + url, img: img };
+        updateBackdrop();
+      };
+      img.onerror = function () { if (posterWash.url === url) { wash.poster = null; updateBackdrop(); } };
+      img.src = url;
+    }, 220);
   }
 
   function clearColour() {
     stage.style.removeProperty('--label');
     stage.style.removeProperty('--glow');
-    setBackdrop('');
+    wash.music = null;
+    updateBackdrop();
   }
 
   /** The cover's most characteristic colour, made bright enough to read on the dark background.
@@ -591,20 +700,11 @@
     return 'hsl(' + Math.round(hue) + ',' + Math.round(saturation * 100) + '%,' + Math.round(lightness * 100) + '%)';
   }
 
-  /** Takes colour from the cover: a soft wash for behind the player, and a tint for the hero card. */
+  /** Takes colour from the cover: the wash behind everything, the record's label colour, and
+      the accent. */
   function colourFrom(img) {
-    try {
-      // The wash is the cover shrunk to a few dozen pixels and blurred once, then stretched
-      // over the screen. Doing the blur here, once per track, costs the TV nothing afterwards.
-      var wash = document.createElement('canvas');
-      wash.width = wash.height = 48;
-      var w = wash.getContext('2d');
-      try { w.filter = 'blur(7px) saturate(1.25)'; } catch (ignored) { /* older WebView: the stretch alone still softens it */ }
-      w.drawImage(img, -10, -10, 68, 68);
-      setBackdrop(wash.toDataURL('image/jpeg', 0.86));
-    } catch (e) {
-      setBackdrop('');
-    }
+    wash.music = { key: 'cover:' + img.src, img: img };
+    updateBackdrop();
     try {
       var canvas = document.createElement('canvas');
       canvas.width = canvas.height = 8;
@@ -747,9 +847,9 @@
       }
     });
     state.apps.forEach(function (app) {
-      if (pins.length < MAX_PINS && app.tv && pins.indexOf(app.pkg) < 0) { pins.push(app.pkg); }
+      if (pins.length < 6 && app.tv && pins.indexOf(app.pkg) < 0) { pins.push(app.pkg); }
     });
-    return pins.slice(0, MAX_PINS);
+    return pins;
   }
 
   function loadApps() {
@@ -758,45 +858,90 @@
     var pins = saved ? saved.filter(function (pkg) { return !!appByPkg(pkg); }) : defaultPins();
     var changed = JSON.stringify(pins) !== JSON.stringify(state.pins);
     state.pins = pins;
-    if (changed || !$('#pins').children.length) { renderPins(); }
+    if (changed || !$('#dock').children.length) { renderDock(); }
   }
 
-  function makeTile(app) {
+  var ICONS = {
+    apps: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/>' +
+      '<rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>',
+    panel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>'
+  };
+
+  /** One app: its own banner when it has one, otherwise its icon and name on a calm tint. */
+  function appTile(app, index) {
     var tile = document.createElement('button');
-    tile.className = 'tile f' + (app.banner ? ' has-banner' : '');
+    tile.className = 'app f' + (app.banner ? ' has-banner' : '');
     tile.dataset.pkg = app.pkg;
+    tile.dataset.key = 'app:' + app.pkg;
+    tile.style.setProperty('--i', index || 0);
+    tile.style.setProperty('--tint', tintFor(app.label));
     tile.setAttribute('aria-label', app.label);
-    var html = '';
+    var html = '<span class="face">';
     if (app.banner) { html += '<img class="banner" alt="" src="' + esc(imageUrl('banner', app.pkg)) + '">'; }
-    html += '<img class="icon" alt="" src="' + esc(imageUrl('icon', app.pkg)) + '">';
-    html += '<span class="name">' + esc(app.label) + '</span><span class="badge">On Home</span>';
+    html += '<img class="icon" alt="" src="' + esc(imageUrl('icon', app.pkg)) + '"><span class="name">' + esc(app.label) + '</span>' +
+      '<i class="glint"></i></span><span class="label">' + esc(app.label) + '</span><span class="badge">On Home</span>' +
+      '<span class="eqbadge" aria-hidden="true"><span class="eq"><i></i><i></i><i></i></span></span>';
     tile.innerHTML = html;
     var banner = $('img.banner', tile);
-    if (banner) { banner.onerror = function () { tile.classList.remove('has-banner'); banner.remove(); }; }
+    if (banner) {
+      banner.onerror = function () { tile.classList.remove('has-banner'); banner.remove(); };
+      banner.onload = function () { shadeFrom(banner, tile); };
+    }
     var icon = $('img.icon', tile);
     icon.onerror = function () { icon.remove(); };
     return tile;
   }
 
-  function renderPins() {
-    var box = $('#pins');
-    var hadFocus = box.contains(document.activeElement) ? document.activeElement.dataset.pkg : null;
-    box.innerHTML = '';
+  /** The soft coloured light under a focused tile, taken from its banner. */
+  function shadeFrom(img, tile) {
+    try {
+      var canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 6;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, 6, 6);
+      var data = ctx.getImageData(0, 0, 6, 6).data;
+      var r = 0, g = 0, b = 0, n = data.length / 4;
+      for (var i = 0; i < data.length; i += 4) { r += data[i]; g += data[i + 1]; b += data[i + 2]; }
+      tile.style.setProperty('--shade', 'rgba(' + Math.round(r / n) + ',' + Math.round(g / n) + ',' + Math.round(b / n) + ',0.4)');
+    } catch (e) { /* a picture from elsewhere: no coloured light, the shadow alone */ }
+  }
+
+  function utilTile(act, label, index) {
+    var tile = document.createElement('button');
+    tile.className = 'app util f';
+    tile.dataset.act = act;
+    tile.dataset.key = 'util:' + act;
+    tile.style.setProperty('--i', index);
+    tile.setAttribute('aria-label', label);
+    tile.innerHTML = '<span class="face">' + ICONS[act] + '<i class="glint"></i></span><span class="label">' + esc(label) + '</span>';
+    return tile;
+  }
+
+  /** The dock: the apps on Home, then All apps and Control Centre. */
+  function renderDock() {
+    var dock = $('#dock');
+    var focusedKey = dock.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+    dock.innerHTML = '';
+    var n = 0;
     state.pins.forEach(function (pkg) {
       var app = appByPkg(pkg);
-      if (app) { box.appendChild(makeTile(app)); }
+      if (app) { dock.appendChild(appTile(app, n++)); }
     });
-    if (box.children.length < MAX_PINS) {
-      var add = document.createElement('button');
-      add.className = 'tile f';
-      add.dataset.act = 'apps';
-      add.innerHTML = '<span class="name">All apps</span>';
-      box.appendChild(add);
+    dock.appendChild(utilTile('apps', 'All apps', n++));
+    dock.appendChild(utilTile('panel', 'Control Centre', n++));
+    markSounding();
+    if (focusedKey && state.view === 'home' && !state.panel) {
+      focus($('[data-key="' + focusedKey + '"]', dock) || dock.firstElementChild);
     }
-    if (hadFocus) {
-      var again = $('[data-pkg="' + hadFocus + '"]', box) || box.firstElementChild;
-      if (again && state.view === 'home' && !state.panel) { focus(again); }
-    }
+  }
+
+  /** Marks the tile of the app the music is coming from. */
+  var soundingPkg = null;
+  function markSounding() {
+    var np = state.np || {};
+    var pkg = np.active && np.playing ? np.pkg || '' : '';
+    soundingPkg = pkg;
+    $$('#dock .app').forEach(function (tile) { tile.classList.toggle('sounding', !!pkg && tile.dataset.pkg === pkg); });
   }
 
   function renderAllApps() {
@@ -805,7 +950,7 @@
     state.apps.forEach(function (app) {
       var cell = document.createElement('div');
       cell.className = 'app-cell';
-      var tile = makeTile(app);
+      var tile = appTile(app, 0);
       tile.classList.toggle('pinned', state.pins.indexOf(app.pkg) >= 0);
       var caption = document.createElement('div');
       caption.className = 'caption';
@@ -831,15 +976,61 @@
       toast((app ? app.label : 'App') + ' added to Home');
     }
     store.set('pins', state.pins);
-    renderPins();
-    $$('#app-grid .tile').forEach(function (tile) {
+    renderDock();
+    $$('#app-grid .app').forEach(function (tile) {
       tile.classList.toggle('pinned', state.pins.indexOf(tile.dataset.pkg) >= 0);
     });
-    state.feedSig = null;
-    loadFeed();
   }
 
-  /* ---------- Rows from other apps ---------- */
+  /* ---------- Moving an app along the dock (hold OK on it) ---------- */
+
+  function startMoving(tile) {
+    state.moving = tile;
+    tile.classList.add('moving');
+    $('#home .dock').classList.add('moving');
+  }
+
+  function stopMoving() {
+    if (!state.moving) { return; }
+    state.moving.classList.remove('moving');
+    $('#home .dock').classList.remove('moving');
+    state.moving = null;
+    store.set('pins', state.pins);
+  }
+
+  /** Swaps the moving app with its neighbour. The neighbour glides across; the moving app
+      keeps jiggling in its new place. */
+  function shiftMoving(step) {
+    var tile = state.moving;
+    var pkg = tile.dataset.pkg;
+    var from = state.pins.indexOf(pkg);
+    var to = from + step;
+    if (to < 0 || to >= state.pins.length) { return; }
+    var other = step < 0 ? tile.previousElementSibling : tile.nextElementSibling;
+    if (!other) { return; }
+    state.pins.splice(from, 1);
+    state.pins.splice(to, 0, pkg);
+    var before = other.offsetLeft;
+    if (step < 0) { tile.parentNode.insertBefore(tile, other); } else { tile.parentNode.insertBefore(other, tile); }
+    other.style.transition = 'none';
+    other.style.transform = 'translate3d(' + (before - other.offsetLeft) + 'px,0,0)';
+    void other.offsetWidth;
+    other.style.transition = '';
+    other.style.transform = '';
+    $$('#dock .app').forEach(function (el, i) { el.style.setProperty('--i', i); });
+    reveal(tile);
+  }
+
+  function removeMoving() {
+    var tile = state.moving;
+    var next = tile.nextElementSibling && tile.nextElementSibling.dataset.pkg ? tile.nextElementSibling : tile.previousElementSibling;
+    var nextKey = next ? next.dataset.key : null;
+    stopMoving();
+    togglePin(tile.dataset.pkg);
+    focus((nextKey && $('#dock [data-key="' + nextKey + '"]')) || $('#dock .app'));
+  }
+
+  /* ---------- The shelf above the dock ---------- */
 
   function minutesLeft(ms) {
     if (!(ms > 0)) { return ''; }
@@ -847,36 +1038,6 @@
     if (minutes < 1) { return ''; }
     if (minutes < 60) { return minutes + ' min left'; }
     return Math.floor(minutes / 60) + ' h ' + ('0' + (minutes % 60)).slice(-2) + ' min left';
-  }
-
-  function makeCard(item, key, withTag) {
-    var card = document.createElement('button');
-    card.className = 'card f';
-    card.dataset.intent = item.intent || '';
-    card.dataset.owner = item.pkg || '';
-    card.dataset.key = key;
-    var sub = [item.sub, minutesLeft(item.left)].filter(Boolean).join(' · ');
-    var html = '<div class="poster">';
-    if (item.poster) { html += '<img alt="" src="' + esc(item.poster) + '">'; }
-    else { html += '<div class="fallback" style="background:' + tintFor(item.title || item.app) + '">' + esc(item.title) + '</div>'; }
-    if (withTag && item.app) { html += '<div class="tag">' + esc(item.app) + '</div>'; }
-    if (item.progress > 0) { html += '<div class="left"><i style="width:' + Math.round(Math.min(1, item.progress) * 100) + '%"></i></div>'; }
-    html += '</div><div><div class="title">' + esc(item.title || item.app || '') + '</div>';
-    if (sub) { html += '<div class="sub">' + esc(sub) + '</div>'; }
-    html += '</div>';
-    card.innerHTML = html;
-    card.setAttribute('aria-label', item.title || item.app || 'Open');
-    var img = $('img', card);
-    if (img) {
-      img.onerror = function () {
-        var fallback = document.createElement('div');
-        fallback.className = 'fallback';
-        fallback.style.background = tintFor(item.title || item.app);
-        fallback.textContent = item.title || item.app || '';
-        img.replaceWith(fallback);
-      };
-    }
-    return card;
   }
 
   /** A calm two-tone background for a poster that has no picture, the same for the same title. */
@@ -887,79 +1048,153 @@
     return 'linear-gradient(140deg, hsl(' + hue + ',26%,30%), hsl(' + ((hue + 28) % 360) + ',22%,17%))';
   }
 
-  function makeRow(id, heading, aside, cards) {
-    var row = document.createElement('section');
-    row.className = 'row';
-    row.dataset.zone = id;
-    row.innerHTML = '<div class="row-head"><h2>' + esc(heading) + '</h2><span>' + esc(aside) + '</span></div>' +
-      '<div class="scroller"><div class="track"></div></div>';
-    var track = $('.track', row);
-    cards.forEach(function (card) { track.appendChild(card); });
-    return row;
+  function musicLike(pkg) { return MUSIC_APPS.test(pkg || ''); }
+
+  /** What an app has lined up: its Continue watching items first, then its own rows. */
+  function contentFor(pkg) {
+    var groups = [];
+    var next = state.content.watchNext.filter(function (item) { return item.pkg === pkg; });
+    if (next.length) { groups.push({ title: 'Continue watching', items: next.slice(0, 12) }); }
+    state.content.previews.filter(function (channel) { return channel.pkg === pkg && channel.items && channel.items.length; })
+      .slice(0, 3).forEach(function (channel) {
+        groups.push({ title: channel.name || 'From ' + (channel.app || 'the app'), items: channel.items.slice(0, 12) });
+      });
+    return groups;
   }
 
-  /** Every app that is not pinned, plus TV settings, so nothing is more than a row away. */
-  function makeAppsRow() {
-    var tiles = state.apps
-      .filter(function (app) { return state.pins.indexOf(app.pkg) < 0; })
-      .map(makeTile);
-    var settings = document.createElement('button');
-    settings.className = 'tile f';
-    settings.dataset.act = 'settings';
-    settings.dataset.key = 'settings';
-    settings.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/>' +
-      '<circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span class="name">TV settings</span>';
-    tiles.push(settings);
-    return makeRow('apps', 'Apps', 'Hold OK to put an app on Home', tiles);
-  }
-
-  function loadFeed() {
-    state.status = callJson('getStatus', {});
-    var watchNext = state.status.tvListings ? callJson('getWatchNext', []) : [];
-    var previews = state.status.tvListings ? callJson('getPreviews', []) : [];
-    var sig = JSON.stringify([watchNext, previews, state.pins, !!state.status.tvListings,
-      state.apps.map(function (app) { return app.pkg; })]);
-    if (sig === state.feedSig) { return; }
-    state.feedSig = sig;
-
-    var feed = $('#feed');
-    var focused = feed.contains(document.activeElement) ? document.activeElement : null;
-    var focusedKey = focused ? (focused.dataset.key || focused.dataset.pkg || null) : null;
-    feed.innerHTML = '';
-
+  /** Which shelf an item in focus asks for. Apps with something to show get their own; the
+      music is the shelf for everything else. */
+  function shelfOwner(el) {
+    if (!el || !el.closest('.dock')) { return state.shelf; }
+    var pkg = el.dataset.pkg;
+    if (!pkg || musicLike(pkg)) { return 'music'; }
     if (!state.status.tvListings) {
-      var ask = document.createElement('section');
-      ask.className = 'row';
-      ask.dataset.zone = 'ask';
-      ask.innerHTML = '<div class="row-head"><h2>Continue watching</h2><span></span></div>' +
-        '<div class="ask"><p>Home can show what Netflix, SVT Play and your other apps have lined up for you. ' +
-        'It needs your permission to read what they share.</p>' +
-        '<button class="pill f" data-setup="listings" data-done="0" data-key="ask">Allow</button></div>';
-      feed.appendChild(ask);
+      var app = appByPkg(pkg);
+      return app && app.tv ? 'ask:' + pkg : 'music';
     }
+    return contentFor(pkg).length ? pkg : 'music';
+  }
 
-    if (watchNext.length) {
-      var names = [];
-      watchNext.forEach(function (item) { if (item.app && names.indexOf(item.app) < 0) { names.push(item.app); } });
-      feed.appendChild(makeRow('continue', 'Continue watching', names.slice(0, 3).join(' · '),
-        watchNext.map(function (item) { return makeCard(item, 'wn:' + item.id, true); })));
+  var shelfTimer = 0;
+  /** Called whenever focus moves. Moving along the dock changes the shelf once focus rests. */
+  function focusChanged(el) {
+    if (state.view !== 'home' || state.panel || !el.closest('#home')) { return; }
+    if (el.closest('.dock')) {
+      state.dockKey = el.dataset.key;
+      var owner = shelfOwner(el);
+      clearTimeout(shelfTimer);
+      if (owner !== state.shelf) { shelfTimer = setTimeout(function () { setShelf(owner); }, 260); }
+    } else if (el.classList.contains('poster')) {
+      state.shelfFocus[state.shelf] = el.dataset.key;
+      washFromPoster(el.dataset.poster || '');
     }
+  }
 
-    var rank = function (channel) {
-      var index = state.pins.indexOf(channel.pkg);
-      return index < 0 ? 99 : index;
-    };
-    previews.slice().sort(function (a, b) { return rank(a) - rank(b); }).slice(0, 4).forEach(function (channel, n) {
-      feed.appendChild(makeRow('preview' + n, channel.app || 'From your apps', channel.name || '',
-        channel.items.map(function (item) { return makeCard(item, 'pv:' + item.id, false); })));
+  /** Shows a shelf. A new app's shelf slides in from the side the remote moved towards. */
+  function setShelf(owner, now) {
+    clearTimeout(shelfTimer);
+    if (owner === state.shelf) { return; }
+    state.shelf = owner;
+    var music = $('#shelf-music');
+    var layers = $$('#shelf .shelf-app');
+    if (owner === 'music') {
+      layers.forEach(function (layer) { layer.classList.remove('on'); });
+      music.classList.add('on');
+      washFromPoster(null);
+    } else {
+      var shown = layers.filter(function (layer) { return layer.classList.contains('on'); })[0];
+      var layer = shown === layers[0] ? layers[1] : layers[0];
+      buildShelf(layer, owner);
+      layer.classList.remove('enter-right', 'enter-left', 'enter-up');
+      void layer.offsetWidth;
+      layer.classList.add(now ? 'enter-up' : state.lastDir === 'left' ? 'enter-left' : 'enter-right');
+      layer.classList.add('on');
+      if (shown) { shown.classList.remove('on'); }
+      music.classList.remove('on');
+      var first = $('.poster', layer);
+      washFromPoster(first ? first.dataset.poster || '' : null);
+    }
+    updateBackdrop();
+  }
+
+  function buildShelf(layer, owner) {
+    if (owner.indexOf('ask:') === 0) {
+      var app = appByPkg(owner.slice(4));
+      layer.innerHTML = '<div class="shelf-ask"><h2>See what’s next in ' + esc(app ? app.label : 'your apps') + '</h2>' +
+        '<p>Home can show what Netflix, SVT Play and your other apps have lined up for you. It needs your permission to read what they share.</p>' +
+        '<button class="pill f glass" data-setup="listings" data-done="0" data-key="ask">Allow</button></div>';
+      return;
+    }
+    var html = '<div class="track">';
+    contentFor(owner).forEach(function (group, g) {
+      html += '<div class="pgroup"><h3>' + esc(group.title) + '</h3><div class="items">';
+      group.items.forEach(function (item, i) { html += posterHtml(item, owner + ':' + g + ':' + (item.id != null ? item.id : i)); });
+      html += '</div></div>';
     });
+    layer.innerHTML = html + '</div>';
+    $$('.poster img', layer).forEach(function (img) {
+      img.onerror = function () {
+        var card = img.closest('.poster');
+        var fallback = document.createElement('div');
+        fallback.className = 'fallback';
+        fallback.style.background = tintFor(card.getAttribute('aria-label'));
+        fallback.textContent = card.getAttribute('aria-label');
+        img.replaceWith(fallback);
+        card.dataset.poster = '';
+      };
+    });
+  }
 
-    feed.appendChild(makeAppsRow());
+  function posterHtml(item, key) {
+    var title = item.title || item.app || '';
+    var sub = [item.sub, minutesLeft(item.left)].filter(Boolean).join(' · ');
+    var html = '<button class="poster f" data-key="' + esc(key) + '" data-intent="' + esc(item.intent || '') + '" data-owner="' +
+      esc(item.pkg || '') + '" data-poster="' + esc(item.poster || '') + '" aria-label="' + esc(title) + '"><div class="art">';
+    html += item.poster ? '<img alt="" src="' + esc(item.poster) + '">'
+      : '<div class="fallback" style="background:' + tintFor(title) + '">' + esc(title) + '</div>';
+    if (item.progress > 0) { html += '<div class="left"><i style="width:' + Math.round(Math.min(1, item.progress) * 100) + '%"></i></div>'; }
+    html += '<i class="glint"></i></div><div class="cap"><b>' + esc(title) + '</b><span>' + esc(sub || item.app || '') + '</span></div></button>';
+    return html;
+  }
 
-    if (focusedKey) {
-      var again = $('[data-key="' + focusedKey + '"]', feed) || $('[data-pkg="' + focusedKey + '"]', feed) ||
-        $('#pins [data-pkg="' + focusedKey + '"]');
-      if (state.view === 'home' && !state.panel) { focus(again || defaultFocus()); }
+  /** Where Up from the dock lands: play/pause on the music, or the poster last used. */
+  function shelfEntry() {
+    var layer = $('#shelf .shelf-layer.on');
+    if (!layer) { return null; }
+    var pick = null;
+    if (state.shelf === 'music') {
+      pick = $('[data-act="toggle"]', layer);
+    } else if (state.shelfFocus[state.shelf]) {
+      pick = $('[data-key="' + state.shelfFocus[state.shelf] + '"]', layer);
+    }
+    if (pick && isShown(pick)) { return pick; }
+    return $$('.f', layer).filter(isShown)[0] || null;
+  }
+
+  /** Reads what the apps share and refreshes the shelf on screen if any of it changed. */
+  function loadContent() {
+    state.status = callJson('getStatus', {});
+    var allowed = !!state.status.tvListings;
+    var watchNext = allowed ? callJson('getWatchNext', []) : [];
+    var previews = allowed ? callJson('getPreviews', []).filter(function (channel) { return !musicLike(channel.pkg); }) : [];
+    var sig = JSON.stringify([watchNext, previews, allowed]);
+    if (sig === state.contentSig) { return; }
+    state.contentSig = sig;
+    state.content = { watchNext: watchNext, previews: previews };
+
+    var active = document.activeElement;
+    var inShelf = active && active.closest && active.closest('#shelf');
+    var owner = active && active.closest && active.closest('#dock') ? shelfOwner(active) : state.shelf;
+    if (owner !== 'music' && owner.indexOf('ask:') !== 0 && !contentFor(owner).length) { owner = 'music'; }
+    if (owner === state.shelf && owner !== 'music') {
+      // Same app: refill its shelf in place and keep focus on the same poster.
+      var layer = $('#shelf .shelf-app.on');
+      var key = inShelf ? active.dataset.key : null;
+      buildShelf(layer, owner);
+      if (inShelf) { focus((key && $('[data-key="' + key + '"]', layer)) || shelfEntry() || defaultFocus()); }
+    } else {
+      setShelf(owner, true);
+      if (inShelf) { focus(shelfEntry() || defaultFocus()); }
     }
   }
 
@@ -974,6 +1209,22 @@
     return '<button class="setup-row f' + (done ? ' done' : '') + '" data-setup="' + action + '" data-done="' + (done ? '1' : '0') +
       '"><span class="what"><b>' + esc(title) + '</b><span>' + esc(text) + '</span></span>' +
       '<span class="state">' + (done ? 'On' : esc(actionLabel)) + '</span></button>';
+  }
+
+  /** On, stopped by Android, or off. With the permission for it, one press mends it. */
+  function homeButtonRow(status) {
+    var fix = !!status.canFixHomeButton;
+    if (status.homeButton && status.homeButtonRunning !== false) {
+      return setupRow(true, 'Home button', 'The remote’s Home button opens this screen.', 'accessibility', '');
+    }
+    if (status.homeButton) {
+      return setupRow(false, 'Home button', fix ? 'Android has stopped it. Choose this to start it again.'
+        : 'Android has stopped it. In the TV’s settings, under Accessibility, turn TV Home off and on again.',
+        fix ? 'fix-home' : 'accessibility', fix ? 'Restart' : 'Open settings');
+    }
+    return setupRow(false, 'Home button', fix ? 'The Home button goes to the stock home screen. Choose this to bring it here.'
+      : 'Not sending the Home button here yet. In the TV’s settings, under Accessibility, turn on TV Home.',
+      fix ? 'fix-home' : 'accessibility', fix ? 'Turn on' : 'Open settings');
   }
 
   function renderPanel() {
@@ -1035,9 +1286,7 @@
       setupRow(!!status.nowPlayingAccess, 'Now playing',
         status.nowPlayingAccess ? 'Shows the current track from Spotify and other apps.'
           : 'Needs notification access. Use the setup guide, or try the button.', 'notifications', 'Open settings') +
-      setupRow(!!status.homeButton, 'Home button',
-        status.homeButton ? 'The remote’s Home button opens this screen.'
-          : 'Not sending the Home button here yet. Use the setup guide, or try the button.', 'accessibility', 'Open settings') +
+      homeButtonRow(status) +
       setupRow(!!status.tvListings, 'Continue watching',
         status.tvListings ? 'Shows what your apps share for Home.'
           : 'Lets Home show what Netflix and other apps share.', 'listings', 'Allow') +
@@ -1140,6 +1389,7 @@
 
   function openPanel() {
     if (state.panel) { return; }
+    stopMoving();
     rememberFocus();
     state.panelReturn = document.activeElement;
     state.panel = true;
@@ -1200,10 +1450,16 @@
     if (d.setup) {
       if (d.done === '1') { toast('Already on'); }
       else if (d.setup === 'listings') { call('requestTvListings'); }
+      else if (d.setup === 'fix-home') {
+        if (call('fixHomeButton')) {
+          toast('Starting the Home button again');
+          setTimeout(function () { if (state.panel) { renderPanel(); } }, 3000);
+        } else { call('openSettings', 'accessibility'); }
+      }
       else if (!call('openSettings', d.setup)) { toast('This TV has no screen for that. Use the setup guide.'); }
       return;
     }
-    if (d.intent !== undefined && el.classList.contains('card')) {
+    if (d.intent !== undefined && el.classList.contains('poster')) {
       if (!call('openIntent', d.intent, d.owner || '')) { toast('Could not open that'); }
       return;
     }
@@ -1228,16 +1484,17 @@
         if (spotify) { launch(spotify.pkg); } else { show('allapps'); }
         break;
       case 'source-app':
-        if (np.active && np.pkg) { launch(np.pkg); } else { activate($('#now [data-act="music"]')); }
+        if (np.active && np.pkg) { launch(np.pkg); } else { activate($('#shelf-music [data-act="music"]')); }
         break;
       default:
-        if (el.id === 'btn-apps') { show('allapps'); }
-        else if (el.id === 'btn-panel') { openPanel(); }
+        break;
     }
   }
 
+  /** Holding OK: in the dock, pick the app up to move it; on All apps, add it to Home or take it off. */
   function hold(el) {
-    if (el.dataset.pkg && !state.panel) { togglePin(el.dataset.pkg); }
+    if (!el.dataset.pkg || state.panel) { return; }
+    if (state.view === 'home' && el.closest('.dock')) { startMoving(el); } else { togglePin(el.dataset.pkg); }
   }
 
   /* ---------- Keys ---------- */
@@ -1254,6 +1511,14 @@
     e.preventDefault();
     if (state.view === 'ambient') {
       if (!e.repeat) { leaveAmbient(); press = { swallow: true }; }
+      return;
+    }
+    if (state.moving) {
+      // Moving an app: left and right move it, down takes it off Home, anything else puts it down.
+      if (key === 'ArrowLeft') { shiftMoving(-1); }
+      else if (key === 'ArrowRight') { shiftMoving(1); }
+      else if (key === 'ArrowDown') { if (!e.repeat) { removeMoving(); } }
+      else if (key !== 'ArrowUp' && !e.repeat) { stopMoving(); press = { swallow: true }; }
       return;
     }
     switch (key) {
@@ -1341,6 +1606,7 @@
           else { openPanel(); }
           break;
         case 'pause':
+          stopMoving();
           state.visible = false;
           state.pausedAt = Date.now();
           leaveAmbient();
@@ -1350,7 +1616,7 @@
           state.visible = true;
           noteInput();
           loadApps();
-          loadFeed();
+          loadContent();
           pull();
           loadWeather();
           call('checkUpdate', false);
@@ -1365,14 +1631,18 @@
           }
           break;
         case 'permissions':
-          state.feedSig = null;
-          loadFeed();
+          state.contentSig = null;
+          loadContent();
           if (state.panel) { renderPanel(); }
           break;
         case 'show':
           noteInput();
           if (detail === 'player') { closePanel(); show('player'); }
-          else { goHome(); }
+          else if (!state.visible && Date.now() - state.pausedAt > 1500 && state.view === 'home' && !state.panel) {
+            // Back from another app: Home is as it was left, like Apple TV.
+            stopMoving();
+            restoreFocus();
+          } else { goHome(); }
           break;
         default:
           break;
@@ -1404,11 +1674,11 @@
   renderClock();
   loadApps();
   pull();
-  loadFeed();
+  loadContent();
   loadWeather();
   pollUpdate();
   var first = call('takePendingView');
-  if (first === 'player') { show('player'); } else { focus(defaultFocus()); }
+  if (first === 'player') { show('player'); } else { goHome(); }
   setInterval(tick, 1000);
-  setInterval(function () { if (state.visible) { loadFeed(); } }, 5 * 60 * 1000);
+  setInterval(function () { if (state.visible) { loadContent(); } }, 5 * 60 * 1000);
 })();

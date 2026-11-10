@@ -223,6 +223,9 @@ final class Updater {
                     int flags = PendingIntent.FLAG_UPDATE_CURRENT
                             | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
                     PendingIntent result = PendingIntent.getBroadcast(app, id, done, flags);
+                    // Android ends this process to install; the Home button's service brings
+                    // the new build up when it reconnects.
+                    App.setReopen(app, true);
                     session.commit(result.getIntentSender());
                 }
             } catch (IOException | RuntimeException e) {
@@ -242,6 +245,7 @@ final class Updater {
                 state = "current";
                 apkFile().delete();
             } else {
+                App.setReopen(app, false);
                 // Keep the download, so pressing Install again does not fetch it a second time.
                 state = apkFile().exists() ? "ready" : "error";
                 error = message == null || message.isEmpty() ? "The update was not installed" : message;

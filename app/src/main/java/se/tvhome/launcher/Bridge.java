@@ -218,7 +218,10 @@ final class Bridge {
         JSONObject o = new JSONObject();
         try {
             o.put("nowPlayingAccess", media.hasAccess());
-            o.put("homeButton", HomeKeyService.isEnabled(activity));
+            boolean homeOn = HomeButton.isEnabled(activity);
+            o.put("homeButton", homeOn);
+            o.put("homeButtonRunning", homeOn && HomeButton.isRunning(activity));
+            o.put("canFixHomeButton", HomeButton.canFix(activity));
             o.put("tvListings", TvData.allowed(activity));
             o.put("version", activity.getPackageManager()
                     .getPackageInfo(activity.getPackageName(), 0).versionName);
@@ -229,6 +232,12 @@ final class Bridge {
             return "{}";
         }
         return o.toString();
+    }
+
+    /** Switches the Home button service on, or off and on again. False without the permission. */
+    @JavascriptInterface
+    public boolean fixHomeButton() {
+        return HomeButton.fix(activity);
     }
 
     @JavascriptInterface

@@ -22,6 +22,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        App.setReopen(this, false);
         media = MediaWatcher.get(this);
         bridge = new Bridge(this, media);
         bridge.setPendingView(getIntent() == null ? null : getIntent().getStringExtra(EXTRA_VIEW));
@@ -68,13 +69,19 @@ public class MainActivity extends Activity {
         media.start();
         SonosWatcher.get(this).resume();
         Updater.get(this).check(false);
+        // If Android has dropped the Home button service, switch it back on (when allowed to).
+        web.removeCallbacks(mendHomeButton);
+        web.postDelayed(mendHomeButton, 3000);
         web.onResume();
         web.requestFocus();
         emit("resume", "");
     }
 
+    private final Runnable mendHomeButton = () -> HomeButton.fixIfNeeded(this, false);
+
     @Override
     protected void onPause() {
+        web.removeCallbacks(mendHomeButton);
         Foreground.homeVisible = false;
         SonosWatcher.get(this).pause();
         emit("pause", "");

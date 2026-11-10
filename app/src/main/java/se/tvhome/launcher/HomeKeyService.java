@@ -1,13 +1,14 @@
 package se.tvhome.launcher;
 
 import android.accessibilityservice.AccessibilityService;
-import android.content.ComponentName;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.Build;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.SystemClock;
-import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
 
@@ -19,6 +20,9 @@ import java.util.Set;
  * Makes this the TV's home screen without removing the one it shipped with: the remote's Home
  * button comes here, and whenever the stock home screen appears (after the TV wakes, say) this
  * one is shown instead. The stock home screen stays installed as a fallback.
+ *
+ * Runs in a small process of its own (see the manifest), so a crash in the main process, or
+ * Android closing it to free memory, does not take the Home button with it.
  */
 public class HomeKeyService extends AccessibilityService {
 
@@ -30,15 +34,46 @@ public class HomeKeyService extends AccessibilityService {
 
     private final Set<String> stockHomes = new HashSet<>();
     private long lastTakeover;
+    private String lastWindow;
+
+    /** The main process asks through this to bring TV Home forward (the player, when music starts). */
+    private final BroadcastReceiver openRequests = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String view = intent.getStringExtra(MainActivity.EXTRA_VIEW);
+            openHome(view == null ? "home" : view);
+        }
+    };
+    private boolean listening;
 
     @Override
     protected void onServiceConnected() {
+        App.setHomeWanted(this, true);
         findStockHomes();
-        // Right after the TV starts, show this home screen straight away. Later reconnects
-        // (an update, Android restarting the service) must not pull the user out of an app.
-        if (SystemClock.elapsedRealtime() < 3 * 60 * 1000 && !App.crashedRecently(this)) {
+        if (!listening) {
+            IntentFilter filter = new IntentFilter(App.ACTION_OPEN);
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(openRequests, filter, App.PERMISSION_INTERNAL, null, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(openRequests, filter, App.PERMISSION_INTERNAL, null);
+            }
+            listening = true;
+        }
+        // Right after the TV starts, show this home screen straight away, and after an update
+        // started from here, bring the new build up. Other reconnects (Android restarting the
+        // service, say) must not pull the user out of an app.
+        boolean updated = App.takeReopen(this);
+        if ((updated || SystemClock.elapsedRealtime() < 3 * 60 * 1000) && !App.crashedRecently(this)) {
             openHome("home");
         }
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        // Android unbinds like this only when the service is switched off in Settings (a crash or
+        // a force stop ends the process without it), so it was the user's choice: respect it.
+        App.setHomeWanted(this, false);
+        return super.onUnbind(intent);
     }
 
     private void findStockHomes() {
@@ -85,11 +120,13 @@ public class HomeKeyService extends AccessibilityService {
             return;
         }
         String pkg = event.getPackageName().toString();
-        Foreground.onWindow(pkg);
-        if (!stockHomes.contains(pkg) || App.crashedRecently(this)) {
-            return;
+        if (!pkg.equals(lastWindow)) {
+            lastWindow = pkg;
+            // Tell the main process, which decides whether to bring the player forward.
+            Intent window = new Intent(App.ACTION_WINDOW).setPackage(getPackageName()).putExtra("pkg", pkg);
+            sendBroadcast(window, App.PERMISSION_INTERNAL);
         }
-        if (!"1".equals(App.prefs(this).getString("takeOver", "1"))) {
+        if (!stockHomes.contains(pkg) || App.crashedRecently(this)) {
             return;
         }
         long now = SystemClock.uptimeMillis();
@@ -116,13 +153,20 @@ public class HomeKeyService extends AccessibilityService {
     public void onInterrupt() {
     }
 
-    static boolean isEnabled(Context context) {
-        String enabled = Settings.Secure.getString(
-                context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        if (enabled == null) {
-            return false;
+    @Override
+    public void onDestroy() {
+        if (listening) {
+            try {
+                unregisterReceiver(openRequests);
+            } catch (IllegalArgumentException ignored) {
+                // Already gone.
+            }
+            listening = false;
         }
-        ComponentName me = new ComponentName(context, HomeKeyService.class);
-        return enabled.contains(me.flattenToString()) || enabled.contains(me.flattenToShortString());
+        super.onDestroy();
+    }
+
+    static boolean isEnabled(Context context) {
+        return HomeButton.isEnabled(context);
     }
 }

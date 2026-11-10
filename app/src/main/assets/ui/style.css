@@ -51,14 +51,20 @@ img { display: block; }
 @keyframes breathe { from { transform: scale(1); } to { transform: scale(1.1) rotate(1.5deg); } }
 @keyframes fade-out { to { opacity: 0; } }
 
-/* Colour from the current cover, behind the player and the clock screen */
+/* Colour from the cover that is playing (or the poster in focus on Home). Each layer is a
+   48-pixel picture, blurred once when it is drawn and stretched over the screen. */
 #backdrop { position: absolute; left: 0; top: 0; right: 0; bottom: 0; opacity: 0; transition: opacity 0.8s ease; }
-#backdrop i { position: absolute; left: -8%; top: -8%; width: 116%; height: 116%; background-size: 100% 100%; opacity: 0; transition: opacity 1.6s ease; }
-#backdrop i.on { opacity: 0.62; }
+#backdrop canvas { position: absolute; left: -8%; top: -8%; width: 116%; height: 116%; opacity: 0; transition: opacity 1.4s ease; animation: breathe 50s ease-in-out infinite alternate; animation-play-state: paused; will-change: transform, opacity; }
+/* The colour drifts very slowly while music plays, and holds still otherwise. */
+.playing #backdrop canvas, #stage[data-view="ambient"] #backdrop canvas { animation-play-state: running; }
+#backdrop canvas.on { opacity: 0.62; }
 #backdrop::after { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: linear-gradient(180deg, rgba(26, 22, 19, 0.42), rgba(26, 22, 19, 0.82)); }
-#stage[data-view="player"] #backdrop, #stage[data-view="ambient"] #backdrop { opacity: 1; }
-#stage[data-view="ambient"] #backdrop i.on { opacity: 0.9; }
-#stage[data-view="ambient"] #backdrop i { animation: breathe 45s ease-in-out infinite alternate; }
+#stage[data-view="home"] #backdrop, #stage[data-view="player"] #backdrop, #stage[data-view="ambient"] #backdrop { opacity: 1; }
+/* Home: a warm glow when there is no colour to take, darker at the top and behind the apps */
+#stage[data-view="home"] #backdrop { background: radial-gradient(1500px 900px at 24% 30%, #2B231D, rgba(26, 22, 19, 0) 70%), var(--ground); }
+#stage[data-view="home"] #backdrop canvas.on { opacity: 0.55; }
+#stage[data-view="home"] #backdrop::after { background: linear-gradient(180deg, rgba(18, 15, 13, 0.5) 0%, rgba(18, 15, 13, 0.12) 30%, rgba(18, 15, 13, 0.22) 56%, rgba(18, 15, 13, 0.82) 78%, rgba(18, 15, 13, 0.94) 100%); }
+#stage[data-view="ambient"] #backdrop canvas.on { opacity: 0.9; }
 #stage[data-view="ambient"] #backdrop::after { background: radial-gradient(1400px 900px at 30% 65%, rgba(18, 15, 13, 0.25), rgba(18, 15, 13, 0.78)); }
 
 /* Focus: where the remote is. A ring just outside the item, and a slight lift. */
@@ -81,9 +87,9 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .weather svg { width: 26px; height: 26px; margin-right: 8px; position: relative; top: 5px; stroke-width: 1.8; }
 .top-actions { display: flex; align-items: center; }
 .top-actions > * + * { margin-left: 16px; }
-.round { width: 56px; height: 56px; border-radius: 28px; border: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: center; }
-.round svg { width: 26px; height: 26px; }
-.update-pill { height: 56px; margin-right: 8px; padding: 0 24px 0 20px; border: 1px solid var(--line); background: var(--panel); }
+.update-pill { height: 54px; padding: 0 24px 0 20px; font-size: 21px; }
+/* Translucent buttons that sit over the backdrop */
+.glass, .update-pill { background: rgba(239, 231, 218, 0.1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
 .update-pill .dot { width: 10px; height: 10px; border-radius: 5px; margin-right: 12px; background: var(--accent); box-shadow: 0 0 0 4px rgba(211, 165, 90, 0.18); }
 
 .pill { height: 60px; padding: 0 28px; border-radius: 30px; background: var(--raised); display: inline-flex; align-items: center; font-size: 22px; font-weight: 550; white-space: nowrap; }
@@ -97,25 +103,10 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .playing .eq i { animation-play-state: running; }
 .np-idle .eq, .np-setup .eq, .paused .eq { display: none; }
 
-/* Home rows. Nothing here scrolls natively: lists are moved with transforms, which stays smooth on a TV. */
-.rows { position: relative; flex: 1; min-height: 0; overflow: hidden; }
-.rows-inner { position: relative; padding: 28px 96px 80px; transition: transform 0.5s var(--ease); will-change: transform; }
-
-.hero-row { height: 372px; display: flex; }
-
-.now { position: relative; flex: 1; min-width: 0; margin-right: 24px; padding: 35px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); display: flex; overflow: hidden; }
-/* A trace of the cover's colour behind the sleeve */
-.now::before { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: radial-gradient(760px 440px at 20% 50%, var(--glow), rgba(0, 0, 0, 0)); transition: background 1.2s ease; pointer-events: none; }
-.now > * { position: relative; }
-.now-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.now-title { margin-top: 2px; font-size: 60px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.24; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-title.long { font-size: 40px; line-height: 1.24; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.now-artist { margin-top: 2px; line-height: 1.3; font-size: 28px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-hint { margin-top: 14px; font-size: 24px; line-height: 1.4; color: var(--text2); max-width: 520px; display: none; }
-.swap [data-np="title"], .swap [data-np="artist"], .swap [data-np="source"] { animation: rise 0.6s var(--ease) both; }
+/* Shared by the music shelf and the player */
+.swap [data-np="title"], .swap [data-np="htitle"], .swap [data-np="artist"], .swap [data-np="source"] { animation: rise 0.6s var(--ease) both; }
 .swap [data-np="artist"] { animation-delay: 0.06s; }
 .swap [data-np="source"] { animation-delay: 0.12s; }
-
 .progress { margin-top: auto; }
 .bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .bar.thick { height: 6px; border-radius: 3px; }
@@ -124,7 +115,6 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .times { margin-top: 8px; display: flex; justify-content: space-between; font-size: 20px; font-weight: 500; color: var(--text3); }
 .controls { margin-top: 12px; display: flex; align-items: center; }
 .controls > * + * { margin-left: 18px; }
-.controls > .push { margin-left: auto; }
 .ctl { width: 56px; height: 56px; border-radius: 50%; background: var(--raised); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .ctl svg { width: 24px; height: 24px; }
 .ctl.big { width: 68px; height: 68px; background: var(--text); color: var(--ground); }
@@ -135,16 +125,102 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .paused .ctl .ico-pause { display: none; }
 .only-idle, .only-setup { display: none; }
 
-/* Hero when nothing is playing, or setup is not finished */
-.np-idle .now .progress, .np-idle .now .ctl, .np-idle .now [data-act="player"],
-.np-setup .now .progress, .np-setup .now .ctl, .np-setup .now [data-act="player"] { display: none; }
-.np-idle .now .now-artist, .np-setup .now .now-artist { display: none; }
-.np-idle .now .now-hint, .np-setup .now .now-hint { display: block; }
-.np-idle .now .controls, .np-setup .now .controls { margin-top: auto; }
-.np-idle .now .controls > *, .np-setup .now .controls > * { margin-left: 0; }
-.np-idle .now .only-idle { display: inline-flex; }
-.np-setup .now .only-setup { display: inline-flex; }
-.np-idle .now .eyebrow, .np-setup .now .eyebrow { color: var(--text3); }
+/* ---------- Home ---------- */
+
+/* The time sits quietly top right, as on Apple TV. */
+.home-top .clock { align-items: center; }
+.home-top .time { font-size: 40px; font-weight: 600; letter-spacing: -0.025em; }
+.home-top .weather { margin: 0 26px 0 0; align-items: center; font-size: 24px; }
+.home-top .weather svg { top: 0; }
+
+/* The shelf: two layers in the same place, one shown at a time. */
+.shelf { position: relative; height: 568px; flex-shrink: 0; }
+.shelf-layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; padding: 0 96px; display: flex; align-items: center; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0s linear 0.3s; }
+.shelf-layer.on { opacity: 1; visibility: visible; transition: opacity 0.5s ease 0.05s; }
+
+/* The music: the record and its sleeve, and the song beside it */
+.sleeve-wrap.shelf-sleeve { width: 690px; height: 460px; margin-right: 52px; }
+.sleeve-wrap.shelf-sleeve .sleeve { width: 460px; border-radius: 6px; box-shadow: 26px 0 60px rgba(0, 0, 0, 0.5), 0 40px 80px -30px rgba(0, 0, 0, 0.7); }
+.sleeve-wrap.shelf-sleeve .record { width: 460px; }
+.music-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.music-title { margin-top: 8px; font-size: 76px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.music-title.long { font-size: 54px; line-height: 1.22; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.music-artist { margin-top: 2px; font-size: 34px; line-height: 1.3; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.music-hint { display: none; margin-top: 14px; max-width: 760px; font-size: 27px; line-height: 1.45; color: var(--text2); }
+.music-info .bar { margin-top: 38px; max-width: 700px; height: 5px; border-radius: 3px; background: rgba(239, 231, 218, 0.16); }
+.music-info .controls { margin-top: 34px; }
+.music-info .controls > * + * { margin-left: 20px; }
+.music-info .ctl { background: rgba(239, 231, 218, 0.1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
+.music-info .ctl.big { background: var(--text); box-shadow: none; }
+.music-info .pill { margin-left: 34px; height: 56px; padding: 0 26px 0 22px; }
+.music-info .pill svg { width: 22px; height: 22px; }
+
+/* Nothing playing: a greeting instead of the record */
+.np-idle .shelf-sleeve, .np-setup .shelf-sleeve { display: none; }
+.np-idle .music-title, .np-setup .music-title { font-size: 92px; }
+.np-idle .music-artist, .np-setup .music-artist,
+.np-idle .music-info .bar, .np-setup .music-info .bar,
+.np-idle .music-info .ctl, .np-setup .music-info .ctl,
+.np-idle .music-info [data-act="player"], .np-setup .music-info [data-act="player"] { display: none; }
+.np-idle .music-hint, .np-setup .music-hint { display: block; }
+.np-idle .music-artist, .np-setup .music-artist { display: none; }
+.np-idle .music-info .controls, .np-setup .music-info .controls { margin-top: 40px; }
+.np-idle .music-info .controls .pill, .np-setup .music-info .controls .pill { margin-left: 0; }
+.np-idle .music-info .only-idle, .np-setup .music-info .only-setup { display: inline-flex; }
+.np-idle .shelf-music .eyebrow, .np-setup .shelf-music .eyebrow { color: var(--text3); }
+
+/* What an app has lined up: big landscape posters in groups, the focused one titled underneath */
+.shelf-app { align-items: center; }
+.shelf-app .track { display: flex; align-items: flex-start; transition: transform 0.5s var(--ease); will-change: transform; }
+.shelf-app.enter-right .track, .shelf-app.enter-left .track, .shelf-app.enter-up > * { animation: shelf-in-right 0.6s var(--ease) both; }
+.shelf-app.enter-left .track { animation-name: shelf-in-left; }
+.shelf-app.enter-up > * { animation-name: rise; }
+@keyframes shelf-in-right { from { opacity: 0; transform: translate3d(60px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes shelf-in-left { from { opacity: 0; transform: translate3d(-60px, 0, 0); } to { opacity: 1; transform: none; } }
+.pgroup { flex-shrink: 0; margin-right: 26px; }
+.pgroup h3 { height: 30px; margin: 0 0 20px; font-size: 19px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; line-height: 30px; color: var(--text2); white-space: nowrap; }
+.pgroup .items { display: flex; }
+.poster { width: 520px; margin-right: 34px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: flex-start; }
+.poster .art { position: relative; width: 520px; height: 292px; border-radius: 14px; overflow: hidden; background: var(--panel); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.poster .art img { width: 100%; height: 100%; object-fit: cover; }
+.poster .fallback { position: absolute; left: 0; top: 0; right: 0; bottom: 0; padding: 26px 28px; display: flex; align-items: flex-end; font-size: 38px; font-weight: 650; line-height: 1.15; letter-spacing: -0.03em; }
+.poster .left { position: absolute; left: 20px; right: 20px; bottom: 18px; height: 6px; border-radius: 3px; background: rgba(14, 12, 10, 0.6); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); overflow: hidden; }
+.poster .left i { display: block; height: 100%; border-radius: inherit; background: var(--text); }
+.poster .cap { min-height: 66px; margin-top: 22px; padding: 0 4px; opacity: 0; transform: translate3d(0, -8px, 0); transition: opacity 0.25s ease, transform 0.35s var(--ease); }
+.poster .cap b { display: block; font-size: 27px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.poster .cap span { display: block; margin-top: 2px; font-size: 21px; line-height: 1.3; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.poster:focus .cap { opacity: 1; transform: none; }
+.poster.f::after { left: 6%; right: 6%; top: 24%; bottom: 30%; border: 0; border-radius: 40px; box-shadow: 0 34px 70px rgba(0, 0, 0, 0.7); z-index: -1; transform: none; }
+.poster:focus { transform: translate3d(0, -6px, 0) scale(1.07); }
+/* While the shelf has focus, the other posters step back a little. */
+.poster .art::before { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 2; background: #0E0C0A; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+.shelf-app:focus-within .poster:not(:focus) .art::before { opacity: 0.32; }
+
+/* Shown in the shelf until Home may read what the apps share */
+.shelf-ask { max-width: 980px; }
+.shelf-ask h2 { font-size: 64px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.2; }
+.shelf-ask p { margin: 16px 0 36px; font-size: 27px; line-height: 1.45; color: var(--text2); }
+
+/* The dock */
+.dock { position: relative; margin-top: auto; height: 340px; padding: 0 96px; flex-shrink: 0; }
+.dock .track { display: flex; align-items: flex-start; transition: transform 0.45s var(--ease); will-change: transform; }
+.dock-hint { position: absolute; left: 96px; top: 222px; font-size: 22px; font-weight: 550; color: var(--text2); opacity: 0; transition: opacity 0.3s ease; white-space: nowrap; }
+.dock.moving .dock-hint { opacity: 1; }
+.dock.moving .app .label { opacity: 0; }
+/* Something is playing from this app: a small equaliser in the corner of its tile */
+.app .eqbadge { position: absolute; right: 12px; bottom: 12px; z-index: 3; height: 30px; padding: 0 9px; border-radius: 15px; background: rgba(14, 12, 10, 0.72); display: none; align-items: center; }
+.app .eqbadge .eq { margin: 0; height: 13px; }
+.app .eqbadge .eq i { width: 3px; height: 13px; }
+.app.sounding .eqbadge { display: flex; }
+/* At the end of a row the item gives a small nudge instead of nothing happening */
+.bump-left { animation: bump-left 0.32s var(--ease); }
+.bump-right { animation: bump-right 0.32s var(--ease); }
+.bump-up { animation: bump-up 0.32s var(--ease); }
+.bump-down { animation: bump-down 0.32s var(--ease); }
+@keyframes bump-left { 35% { translate: -9px 0; } 100% { translate: 0 0; } }
+@keyframes bump-right { 35% { translate: 9px 0; } 100% { translate: 0 0; } }
+@keyframes bump-up { 35% { translate: 0 -7px; } 100% { translate: 0 0; } }
+@keyframes bump-down { 35% { translate: 0 7px; } 100% { translate: 0 0; } }
 
 /* The record and its sleeve. Only the label turns; the light on the grooves sways a little,
    as it does on a real record. Both run on the graphics chip, so they stay smooth. */
@@ -180,42 +256,38 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .sleeve-wrap.large .sleeve { width: 560px; border-radius: 6px; box-shadow: 24px 0 60px rgba(0, 0, 0, 0.55); }
 .sleeve-wrap.large .record { width: 560px; }
 
-/* Pinned apps */
-.pins { width: 642px; flex-shrink: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-gap: 24px; }
-.tile { height: 174px; border-radius: 16px; border: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 600; }
-.tile.f::after { border-radius: 24px; }
-.tile img.banner { position: absolute; left: -1px; top: -1px; width: calc(100% + 2px); height: calc(100% + 2px); object-fit: cover; border-radius: 16px; }
-.tile img.icon { width: 64px; height: 64px; border-radius: 12px; margin-right: 16px; }
-.tile .name { max-width: 70%; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile.has-banner .name, .tile.has-banner img.icon { display: none; }
-.tile .badge { position: absolute; left: 10px; top: 10px; z-index: 2; padding: 3px 10px; border-radius: 4px; background: var(--ink); font-size: 16px; font-weight: 600; color: var(--accent); display: none; }
-.tile.pinned .badge { display: block; }
-.tile svg { width: 34px; height: 34px; margin-right: 14px; }
-
-/* Content rows */
-.row { margin-top: 44px; }
-.row-head { height: 40px; display: flex; align-items: baseline; justify-content: space-between; }
-.row-head h2 { font-size: 30px; font-weight: 650; letter-spacing: -0.025em; transition: color 0.3s ease; }
-.row-head span { font-size: 20px; color: var(--text3); transition: color 0.3s ease; }
-.row:focus-within .row-head span { color: var(--text2); }
-.scroller { margin-top: 18px; }
-.track { position: relative; display: flex; transition: transform 0.45s var(--ease); will-change: transform; }
-.track > * { flex-shrink: 0; margin-right: 24px; }
-.track .tile { width: 268px; height: 151px; font-size: 24px; }
-.track .tile img.icon { width: 52px; height: 52px; }
-.card { width: 414px; display: block; }
-.card.f::after { display: none; }
-.card .poster { position: relative; width: 414px; height: 233px; border-radius: 12px; background: var(--panel); }
-.card .poster::after { content: ''; position: absolute; left: -8px; top: -8px; right: -8px; bottom: -8px; border: 3px solid var(--text); border-radius: 20px; opacity: 0; transform: scale(0.98); transition: opacity 0.16s ease, transform 0.24s var(--ease); pointer-events: none; }
-.card:focus .poster::after { opacity: 1; transform: none; }
-.card:focus { transform: scale(1.05); }
-.card .poster img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
-.card .tag { position: absolute; left: 12px; top: 12px; padding: 4px 10px; border-radius: 5px; background: rgba(14, 12, 10, 0.86); font-size: 18px; font-weight: 600; }
-.card .left { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(14, 12, 10, 0.85); border-radius: 0 0 12px 12px; overflow: hidden; }
-.card .left i { display: block; height: 100%; background: var(--accent); }
-.card .title { margin-top: 12px; line-height: 1.3; font-size: 24px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card .sub { margin-top: 2px; line-height: 1.3; font-size: 20px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card .fallback { position: absolute; left: 0; top: 0; right: 0; bottom: 0; padding: 22px 24px; border-radius: inherit; display: flex; align-items: flex-end; font-size: 32px; font-weight: 650; line-height: 1.12; letter-spacing: -0.03em; }
+/* App tiles, in the dock and on the All apps page. The app's own banner, or its icon and name
+   on a tint. Focus lifts the tile, puts a soft shadow under it and runs a glint across it. */
+.app { position: relative; width: 304px; height: 171px; margin-right: 32px; flex-shrink: 0; border-radius: 18px; transition: transform 0.3s var(--ease); }
+.app.util { width: 171px; }
+.app .face { position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: inherit; overflow: hidden; background: var(--tint, #2A231D); display: flex; align-items: center; justify-content: center; }
+.app .face::after { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.1); pointer-events: none; }
+.app img.banner { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+.app img.icon { width: 64px; height: 64px; border-radius: 14px; margin-right: 16px; }
+.app .name { max-width: 64%; font-size: 26px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app.has-banner .face .name, .app.has-banner img.icon { display: none; }
+.app.util .face { background: rgba(239, 231, 218, 0.09); }
+.app.util svg { width: 46px; height: 46px; stroke-width: 1.8; color: var(--text); }
+.app .glint { position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 2; background: linear-gradient(105deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.2) 46%, rgba(255, 255, 255, 0.06) 54%, rgba(255, 255, 255, 0) 64%); transform: translate3d(-120%, 0, 0); pointer-events: none; }
+.app:focus .glint, .poster:focus .glint { animation: glint 1.1s var(--ease) 0.1s both; }
+@keyframes glint { from { transform: translate3d(-120%, 0, 0); } to { transform: translate3d(120%, 0, 0); } }
+.poster .glint { position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 3; background: linear-gradient(105deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.16) 46%, rgba(255, 255, 255, 0.05) 54%, rgba(255, 255, 255, 0) 64%); transform: translate3d(-120%, 0, 0); pointer-events: none; }
+.app.f::after { left: 8%; right: 8%; top: 30%; bottom: -4%; border: 0; border-radius: 40px; box-shadow: 0 30px 56px rgba(0, 0, 0, 0.62), 0 16px 60px var(--shade, rgba(0, 0, 0, 0)); z-index: -1; transform: none; }
+.app:focus { transform: translate3d(0, -10px, 0) scale(1.12); }
+.app .label { position: absolute; left: -40px; right: -40px; top: 100%; margin-top: 22px; text-align: center; font-size: 23px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transform: translate3d(0, -6px, 0); transition: opacity 0.2s ease, transform 0.3s var(--ease); }
+.app:focus .label { opacity: 1; transform: none; }
+/* When the shelf has focus, the dock steps back. */
+.app .face::before { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 1; background: #0E0C0A; opacity: 0; transition: opacity 0.35s ease; pointer-events: none; }
+#home .dock:not(:focus-within) .app .face::before { opacity: 0.34; }
+/* Moving an app along the dock */
+#home .app.moving { transform: translate3d(0, -10px, 0) scale(1.12); animation: jiggle 0.32s ease-in-out infinite alternate; }
+@keyframes jiggle { from { transform: translate3d(0, -10px, 0) scale(1.12) rotate(-1.2deg); } to { transform: translate3d(0, -10px, 0) scale(1.12) rotate(1.2deg); } }
+/* Coming back to Home: the apps rise into place one after another */
+.arrive .dock .app .face { animation: rise 0.6s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 40ms + 140ms); }
+.arrive .shelf-layer.on > * { animation: rise 0.7s var(--ease) backwards; }
+.arrive .shelf-layer.on > * + * { animation-delay: 0.06s; }
+.app .badge { position: absolute; left: 12px; top: 12px; z-index: 3; padding: 3px 10px; border-radius: 6px; background: rgba(14, 12, 10, 0.86); font-size: 16px; font-weight: 600; color: var(--accent); display: none; }
+.app.pinned .badge { display: block; }
 
 /* Player */
 .player-main { flex: 1; min-height: 0; padding: 0 96px 60px; display: flex; align-items: center; }
@@ -271,8 +343,11 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .scroll-inner { position: relative; transition: transform 0.45s var(--ease); will-change: transform; }
 .grid-scroll .scroll-inner { padding: 36px 96px 80px; }
 .app-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-gap: 30px 24px; }
-.app-grid .tile { height: 183px; width: 100%; }
-.app-grid .tile:focus { transform: scale(1.04); }
+.app-grid .app { width: 100%; height: 184px; margin: 0; }
+.app-grid .app .label { display: none; }
+.app-grid .app:focus { transform: translate3d(0, -6px, 0) scale(1.07); }
+.app-cell .caption { transition: color 0.2s ease; }
+.app-cell:focus-within .caption { color: var(--text); }
 .app-cell .caption { margin-top: 16px; line-height: 1.3; font-size: 20px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Control Centre */
@@ -326,7 +401,3 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 
 #toast { position: absolute; left: 50%; bottom: 60px; z-index: 9; transform: translate3d(-50%, 20px, 0); padding: 14px 26px; border-radius: 28px; background: var(--text); color: var(--ground); font-size: 22px; font-weight: 600; opacity: 0; transition: opacity 0.25s ease, transform 0.35s var(--ease); pointer-events: none; }
 #toast.on { opacity: 1; transform: translate3d(-50%, 0, 0); }
-
-/* Shown on Home until the Continue watching permission is given */
-.ask { margin-top: 18px; padding: 26px 30px; border: 1px solid var(--line); border-radius: 14px; display: flex; align-items: center; }
-.ask p { margin: 0 30px 0 0; flex: 1; font-size: 24px; line-height: 1.4; color: var(--text2); }
