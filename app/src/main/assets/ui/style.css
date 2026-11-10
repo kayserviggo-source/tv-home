@@ -108,9 +108,9 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .now::before { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: radial-gradient(760px 440px at 20% 50%, var(--glow), rgba(0, 0, 0, 0)); transition: background 1.2s ease; pointer-events: none; }
 .now > * { position: relative; }
 .now-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.now-title { margin-top: 10px; font-size: 60px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.08; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-title.long { font-size: 40px; line-height: 1.14; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.now-artist { margin-top: 6px; font-size: 28px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-title { margin-top: 2px; font-size: 60px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.24; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-title.long { font-size: 40px; line-height: 1.24; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.now-artist { margin-top: 2px; line-height: 1.3; font-size: 28px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .now-hint { margin-top: 14px; font-size: 24px; line-height: 1.4; color: var(--text2); max-width: 520px; display: none; }
 .swap [data-np="title"], .swap [data-np="artist"], .swap [data-np="source"] { animation: rise 0.6s var(--ease) both; }
 .swap [data-np="artist"] { animation-delay: 0.06s; }
@@ -186,7 +186,7 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .tile.f::after { border-radius: 24px; }
 .tile img.banner { position: absolute; left: -1px; top: -1px; width: calc(100% + 2px); height: calc(100% + 2px); object-fit: cover; border-radius: 16px; }
 .tile img.icon { width: 64px; height: 64px; border-radius: 12px; margin-right: 16px; }
-.tile .name { max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .name { max-width: 70%; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile.has-banner .name, .tile.has-banner img.icon { display: none; }
 .tile .badge { position: absolute; left: 10px; top: 10px; z-index: 2; padding: 3px 10px; border-radius: 4px; background: var(--ink); font-size: 16px; font-weight: 600; color: var(--accent); display: none; }
 .tile.pinned .badge { display: block; }
@@ -213,17 +213,17 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .card .tag { position: absolute; left: 12px; top: 12px; padding: 4px 10px; border-radius: 5px; background: rgba(14, 12, 10, 0.86); font-size: 18px; font-weight: 600; }
 .card .left { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(14, 12, 10, 0.85); border-radius: 0 0 12px 12px; overflow: hidden; }
 .card .left i { display: block; height: 100%; background: var(--accent); }
-.card .title { margin-top: 14px; font-size: 24px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card .sub { margin-top: 4px; font-size: 20px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .title { margin-top: 12px; line-height: 1.3; font-size: 24px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .sub { margin-top: 2px; line-height: 1.3; font-size: 20px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .fallback { position: absolute; left: 0; top: 0; right: 0; bottom: 0; padding: 22px 24px; border-radius: inherit; display: flex; align-items: flex-end; font-size: 32px; font-weight: 650; line-height: 1.12; letter-spacing: -0.03em; }
 
 /* Player */
 .player-main { flex: 1; min-height: 0; padding: 0 96px 60px; display: flex; align-items: center; }
 .player-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.player-title { margin-top: 12px; font-size: 92px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.player-title.long { font-size: 60px; line-height: 1.1; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.player-artist { margin-top: 8px; font-size: 36px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.player-source { margin-top: 14px; min-height: 30px; font-size: 22px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player-title { margin-top: 2px; font-size: 92px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.22; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player-title.long { font-size: 60px; line-height: 1.22; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.player-artist { margin-top: 4px; line-height: 1.3; font-size: 36px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player-source { margin-top: 12px; line-height: 1.35; min-height: 30px; font-size: 22px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .player-info .progress { margin-top: 44px; }
 .player-info .bar { background: rgba(239, 231, 218, 0.16); }
 .player-info .times { margin-top: 10px; color: var(--text2); }
@@ -244,25 +244,25 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .room { display: inline-flex; align-items: center; height: 60px; padding: 0 6px; font-size: 22px; color: var(--text2); white-space: nowrap; }
 .room svg { width: 24px; height: 24px; margin-right: 10px; }
 
-/* Clock screen: the time at the top, the record at the bottom, the cover's colour all around.
+/* Clock screen: the record and the song fill the screen, the time sits quietly in a corner.
    Everything drifts very slowly, so nothing stays in one place on the panel for long. */
-#ambient { padding: 88px 104px 96px; }
-.ambient-main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: space-between; animation: drift 240s ease-in-out infinite alternate; }
-.ambient-time { font-size: 210px; font-weight: 300; letter-spacing: -0.05em; line-height: 0.9; margin-left: -8px; }
-.ambient-date { margin-top: 26px; display: flex; align-items: baseline; font-size: 32px; color: var(--text2); }
-.ambient-date .weather { font-size: 32px; margin-left: 28px; }
-.ambient-date .weather svg { width: 32px; height: 32px; top: 6px; }
-.ambient-now { display: flex; align-items: center; }
-.sleeve-wrap.ambient-sleeve { width: 400px; height: 280px; margin-right: 64px; }
-.sleeve-wrap.ambient-sleeve .sleeve { width: 280px; border-radius: 5px; box-shadow: 18px 0 44px rgba(0, 0, 0, 0.55); }
-.sleeve-wrap.ambient-sleeve .record { width: 280px; }
-.ambient-text { flex: 1; min-width: 0; max-width: 960px; }
-.ambient-title { margin-top: 14px; font-size: 64px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ambient-artist { margin-top: 8px; font-size: 32px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ambient-text .progress { margin-top: 28px; max-width: 720px; }
-.ambient-text .bar { background: rgba(239, 231, 218, 0.18); }
-.ambient-text .times { color: var(--text2); }
-.ambient-hint { position: absolute; right: 104px; top: 108px; font-size: 20px; color: var(--text3); animation: fade-out 1.2s ease 5s both; }
+#ambient { padding: 72px 120px 96px; }
+.ambient-main { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: drift 240s ease-in-out infinite alternate; }
+.ambient-clock { align-self: flex-end; text-align: right; }
+.ambient-time { font-size: 56px; font-weight: 600; letter-spacing: -0.035em; line-height: 1.15; }
+.ambient-date { margin-top: 4px; font-size: 24px; line-height: 1.3; color: var(--text2); }
+.ambient-date .weather { font-size: 24px; margin-left: 18px; }
+.ambient-date .weather svg { width: 24px; height: 24px; top: 4px; }
+.ambient-now { flex: 1; min-height: 0; display: flex; align-items: center; padding-bottom: 40px; }
+.sleeve-wrap.ambient-sleeve { width: 740px; height: 540px; margin-right: 88px; }
+.sleeve-wrap.ambient-sleeve .sleeve { width: 540px; border-radius: 6px; box-shadow: 26px 0 70px rgba(0, 0, 0, 0.55); }
+.sleeve-wrap.ambient-sleeve .record { width: 540px; }
+.ambient-text { flex: 1; min-width: 0; }
+.ambient-title { margin-top: 6px; font-size: 96px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ambient-title.long { font-size: 64px; line-height: 1.22; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ambient-artist { margin-top: 4px; font-size: 40px; line-height: 1.3; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ambient-text .bar { margin-top: 44px; max-width: 760px; height: 5px; border-radius: 3px; background: rgba(239, 231, 218, 0.18); }
+.ambient-hint { position: absolute; left: 0; right: 0; bottom: 52px; text-align: center; font-size: 20px; color: var(--text3); animation: fade-out 1.2s ease 5s both; }
 
 /* All apps */
 .page-title { font-size: 44px; font-weight: 650; letter-spacing: -0.035em; }
@@ -273,7 +273,7 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .app-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-gap: 30px 24px; }
 .app-grid .tile { height: 183px; width: 100%; }
 .app-grid .tile:focus { transform: scale(1.04); }
-.app-cell .caption { margin-top: 18px; font-size: 20px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-cell .caption { margin-top: 16px; line-height: 1.3; font-size: 20px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Control Centre */
 #scrim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #0A0807; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 5; }

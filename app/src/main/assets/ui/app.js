@@ -466,7 +466,8 @@
     $$('[data-np="' + name + '"]').forEach(function (el) {
       if (el.textContent !== text) { el.textContent = text; }
       if (longAt) {
-        var limit = el.classList.contains('player-title') ? longAt + 2 : longAt;
+        // The player and clock screen have room for a few more letters before wrapping.
+        var limit = el.classList.contains('player-title') || el.classList.contains('ambient-title') ? longAt + 2 : longAt;
         el.classList.toggle('long', text.length > limit);
       }
     });
