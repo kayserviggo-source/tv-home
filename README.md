@@ -8,6 +8,10 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
 - **Now playing.** Shows the current track from Spotify (or any app that plays media): cover,
   title, artist, progress, and play/pause/skip. It reads this from Android's media sessions,
   so it needs no Spotify login.
+- **Sonos.** Music playing on a Sonos speaker (Spotify sent from a phone, say) shows up
+  the same way, with play/pause/skip, even though it never passes through the TV. The app
+  finds the speakers on the home network by itself; no login. The TV's own sound on a Sonos
+  soundbar is ignored.
 - **Player.** A full-screen view of the same thing, with ±10 second seek. It can open by
   itself when music is started from a phone.
 - **Clock screen.** After a couple of minutes without a button press while music plays, a
@@ -16,8 +20,10 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
   screens. Each app decides what it shares, so this can be fuller or emptier per app.
 - **Apps.** Four pinned apps on Home and a row with the rest; hold OK on any app to pin or
   unpin it.
-- **Look.** Three typefaces and four accent colours to choose from, and the player and clock
-  screen take their background colour from the current cover.
+- **Look.** Inter throughout. The accent colour follows the cover that is playing, or is one
+  of five fixed colours; the player and clock screen take their background from the cover.
+- **Updates.** The app checks this repository's Releases every few hours, downloads a newer
+  build by itself, and offers to install it (Android asks for confirmation on the TV).
 - **Weather.** Temperature and conditions beside the clock, from open-meteo.com. The place is
   set in `PLACE` at the top of `app.js`.
 - **Control Centre.** Sleep timer, HDMI inputs, look, TV settings, and setup status. The Menu
@@ -41,7 +47,9 @@ devices (these need a Spotify developer login), and Ambilight control.
 ## Building
 
 Every push to `main` builds the APK with GitHub Actions and attaches it to a new entry on the
-repository's Releases page as `tv-home.apk`. Nothing needs to be installed locally.
+repository's Releases page as `tv-home.apk`, tagged `build-N`. N is the workflow's run
+number and also the app's version code, which is how the app on the TV recognises a newer
+build. The first line of the commit message is shown on the TV as what is new.
 
 The build is signed with the key in `app/tvhome.jks`. It is kept in the repository on purpose,
 so each build installs over the last one. This is a personal, sideloaded app; do not reuse the
@@ -64,6 +72,9 @@ adb shell cmd notification allow_listener se.tvhome.launcher/se.tvhome.launcher.
 
 # Let it read what apps publish for Continue watching
 adb shell pm grant se.tvhome.launcher android.permission.READ_TV_LISTINGS
+
+# Let it install its own updates from GitHub
+adb shell appops set se.tvhome.launcher REQUEST_INSTALL_PACKAGES allow
 
 # Make it the home screen (answers the Home button, replaces the stock home screen)
 adb shell settings get secure enabled_accessibility_services

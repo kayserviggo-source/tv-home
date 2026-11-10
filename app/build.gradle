@@ -10,8 +10,11 @@ android {
         applicationId 'se.tvhome.launcher'
         minSdk 26
         targetSdk 34
-        versionCode 2
-        versionName '0.2.0'
+        // The build number on GitHub is both the version and the release name ("build-N"),
+        // which is how the app recognises a newer build.
+        def build = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+        versionCode build
+        versionName "build ${build}"
     }
 
     // One fixed key, kept in the repo, so every build can be installed over the

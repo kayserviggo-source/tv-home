@@ -17,6 +17,9 @@
   var cover = svg('<rect width="600" height="600" fill="#23324F"/><circle cx="385" cy="207" r="129" fill="#E9E1CF"/>' +
     '<rect y="398" width="600" height="34" fill="#E3A08C"/><rect y="432" width="600" height="168" fill="#C8553D"/>', 600, 600);
 
+  var cover2 = svg('<rect width="600" height="600" fill="#5B2A3A"/><rect x="90" y="90" width="420" height="420" rx="210" fill="#E3A08C"/>' +
+    '<rect x="0" y="300" width="600" height="300" fill="#2C4A3E" opacity="0.85"/>', 600, 600);
+
   function banner(label, bg, fg) {
     return svg('<rect width="640" height="360" fill="' + bg + '"/><text x="320" y="204" text-anchor="middle" ' +
       'font-family="sans-serif" font-size="64" font-weight="700" fill="' + fg + '">' + label + '</text>', 640, 360);
@@ -39,8 +42,10 @@
   ];
 
   var mode = param('state', 'playing');
+  var sonos = param('source', 'tv') === 'sonos';
   var np = {
     access: mode !== 'setup', active: mode === 'playing' || mode === 'paused', playing: mode === 'playing',
+    source: sonos ? 'sonos' : 'tv', room: sonos ? 'Vardagsrum' : '',
     pkg: 'com.spotify.tv.android', app: 'Spotify',
     title: param('title', 'Vinterhav'), artist: 'Nattljus', album: 'Sena kvällar',
     duration: 221000, position: 84000, art: cover, canNext: true, canPrev: true, canSeek: true
@@ -58,6 +63,9 @@
   };
 
   var sleep = { mode: 'off', at: 0, minutes: 0 };
+  var update = param('update', '') === 'ready'
+    ? { state: 'ready', installed: 2, latest: 3, notes: 'Smoother track changes, Sonos, and a new clock screen', progress: 100, error: '', mayInstall: true }
+    : { state: 'current', installed: 3, latest: 3, notes: '', progress: 0, error: '', mayInstall: true };
 
   // A sample reading, so the preview does not depend on the network.
   if (param('weather', '1') === '1') { window.MockWeather = { temp: 6.4, code: 3, day: false }; }
@@ -78,6 +86,7 @@
     getNowPlaying: function () {
       var copy = JSON.parse(JSON.stringify(np));
       copy.position = position();
+      copy.key = np.title + '\n' + np.artist;
       copy.sleep = sleep;
       copy.sleepFired = false;
       return JSON.stringify(copy);
@@ -90,7 +99,12 @@
         startedAt = Date.now();
         np.playing = want;
       } else if (command === 'next') {
-        np.title = 'Stilla vatten'; np.position = 0; startedAt = Date.now(); np.duration = 242000;
+        // Like the real thing: the new title first, the cover a moment later.
+        np.title = np.title === 'Stilla vatten' ? 'Vinterhav' : 'Stilla vatten';
+        np.position = 0; startedAt = Date.now(); np.duration = 242000;
+        var nextArt = np.art === cover ? cover2 : cover;
+        np.art = '';
+        setTimeout(function () { np.art = nextArt; }, 350);
       } else if (command === 'prev') {
         np.position = 0; startedAt = Date.now();
       } else if (command === 'seek') {
@@ -141,6 +155,9 @@
     },
     requestTvListings: function () { listings = true; setTimeout(function () { window.TVHome.emit('permissions', ''); }, 50); },
     setPref: function (key, value) { log.push('pref ' + key + '=' + value); },
+    getUpdate: function () { return JSON.stringify(update); },
+    checkUpdate: function (force) { log.push('check ' + force); },
+    installUpdate: function () { log.push('install'); update.state = 'installing'; },
     keepAwake: function (on) { log.push('awake ' + on); }
   };
 

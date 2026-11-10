@@ -66,6 +66,8 @@ public class MainActivity extends Activity {
         Foreground.spotifyOpenedFromTile = false;
         media.setListener(() -> emit("media", ""));
         media.start();
+        SonosWatcher.get(this).resume();
+        Updater.get(this).check(false);
         web.onResume();
         web.requestFocus();
         emit("resume", "");
@@ -74,6 +76,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         Foreground.homeVisible = false;
+        SonosWatcher.get(this).pause();
         emit("pause", "");
         web.onPause();
         super.onPause();
@@ -141,7 +144,7 @@ public class MainActivity extends Activity {
         }
         if (command != null) {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-                media.command(command, 0);
+                bridge.media(command, ""); // goes to the TV app or the Sonos speaker on screen
                 emit("input", "");
             }
             return true;

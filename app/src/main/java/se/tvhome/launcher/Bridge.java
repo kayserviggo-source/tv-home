@@ -55,9 +55,57 @@ final class Bridge {
         return start(intent);
     }
 
+    // Which source the screen shows: "tv" (an app on the TV) or "sonos". Buttons go to it.
+    private volatile String source = "tv";
+    private volatile String trackOnScreen = "";
+
+    /**
+     * What to show as now playing: music on the TV itself, or on a Sonos speaker. Whatever is
+     * actually playing wins; with both paused, the one that played last.
+     */
     @JavascriptInterface
     public String getNowPlaying() {
-        return media.snapshot();
+        String tvJson = media.snapshot();
+        JSONObject sonos = SonosWatcher.get(activity).snapshot();
+        if (sonos == null) {
+            source = "tv";
+            trackOnScreen = keyOf(tvJson);
+            return tvJson;
+        }
+        try {
+            JSONObject tv = new JSONObject(tvJson);
+            boolean tvActive = tv.optBoolean("active");
+            boolean tvPlaying = tvActive && tv.optBoolean("playing");
+            boolean sonosPlaying = sonos.optBoolean("playing");
+            boolean useSonos = !tvActive
+                    || (sonosPlaying && !tvPlaying)
+                    || (!sonosPlaying && !tvPlaying
+                    && SonosWatcher.get(activity).lastPlayingAt() > media.lastPlayingAt());
+            if (!useSonos) {
+                source = "tv";
+                trackOnScreen = tv.optString("key");
+                return tvJson;
+            }
+            // The sleep timer lives on the TV side whichever source is shown.
+            sonos.put("sleep", tv.opt("sleep"));
+            sonos.put("sleepFired", tv.optBoolean("sleepFired"));
+            source = "sonos";
+            trackOnScreen = sonos.optString("key");
+            if (sonosPlaying) {
+                media.noteTrack(trackOnScreen);
+            }
+            return sonos.toString();
+        } catch (JSONException e) {
+            return tvJson;
+        }
+    }
+
+    private static String keyOf(String json) {
+        try {
+            return new JSONObject(json).optString("key");
+        } catch (JSONException e) {
+            return "";
+        }
     }
 
     @JavascriptInterface
@@ -68,13 +116,34 @@ final class Bridge {
         } catch (NumberFormatException ignored) {
             value = 0;
         }
-        media.command(command, value);
+        if ("sonos".equals(source)) {
+            SonosWatcher.get(activity).command(command, value);
+        } else {
+            media.command(command, value);
+        }
     }
 
     /** "off", "track" (pause when the current track ends) or a number of minutes. */
     @JavascriptInterface
     public void setSleep(String mode) {
-        media.setSleep(mode == null ? "off" : mode);
+        media.setSleep(mode == null ? "off" : mode, trackOnScreen);
+    }
+
+    /* ---------- Updates ---------- */
+
+    @JavascriptInterface
+    public String getUpdate() {
+        return Updater.get(activity).status();
+    }
+
+    @JavascriptInterface
+    public void checkUpdate(boolean force) {
+        Updater.get(activity).check(force);
+    }
+
+    @JavascriptInterface
+    public void installUpdate() {
+        Updater.get(activity).install();
     }
 
     @JavascriptInterface
@@ -131,6 +200,9 @@ final class Bridge {
             intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
         } else if ("notifications".equals(which)) {
             intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+        } else if ("install".equals(which) && Build.VERSION.SDK_INT >= 26) {
+            intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.fromParts("package", activity.getPackageName(), null));
         } else if ("app".equals(which)) {
             intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.fromParts("package", activity.getPackageName(), null));

@@ -49,9 +49,20 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
     private boolean started;
     private MediaController controller;
     private Listener listener;
+    private boolean wasPlaying;
+    private long lastPlayingAt;
+
+    // The cover shown for the current track. Apps often send no picture, or a stand-in such as
+    // their own logo, for a moment while the real cover loads, and resend everything when the
+    // volume changes. So a cover only changes once the new one has settled.
     private byte[] artBytes;
     private String artUrl = "";
-    private boolean wasPlaying;
+    private String artTrack = "";
+    private boolean artFlat;
+    private byte[] nextBytes;
+    private String nextUrl;
+    private boolean nextFlat;
+    private final Runnable commitArt = this::commitArt;
 
     // Sleep timer. Kept here rather than in the interface so it still fires when another
     // app (Spotify's own screen, say) is in front.
@@ -166,6 +177,12 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
         if (controller != null) {
             controller.registerCallback(callback, main);
         }
+        main.removeCallbacks(commitArt);
+        nextUrl = null;
+        artTrack = "";
+        artUrl = "";
+        artBytes = null;
+        artFlat = false;
         refreshArt();
     }
 
@@ -180,33 +197,132 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
         }
     }
 
+    /**
+     * Looks at the picture the app currently offers and decides whether, and when, it replaces
+     * the cover on screen. The app's display icon is deliberately never used: for Spotify that
+     * is its logo, which is what used to flash up between tracks.
+     */
     private void refreshArt() {
-        artBytes = null;
-        artUrl = "";
         MediaMetadata m = controller == null ? null : controller.getMetadata();
-        if (m == null) {
-            return;
-        }
-        Bitmap bitmap = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
-        if (bitmap == null) {
-            bitmap = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
-        }
-        if (bitmap == null) {
-            bitmap = m.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
-        }
-        if (bitmap != null) {
-            byte[] bytes = encode(bitmap);
-            if (bytes != null) {
-                artBytes = bytes;
-                artUrl = App.ORIGIN + "/art/now?k=" + Integer.toHexString(Arrays.hashCode(bytes));
-                return;
+        String track = m == null ? "" : trackKeyOf(m);
+        byte[] bytes = null;
+        String url = "";
+        boolean flat = false;
+        if (m != null) {
+            Bitmap bitmap = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if (bitmap == null) {
+                bitmap = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            }
+            if (bitmap != null) {
+                bytes = encode(bitmap);
+                if (bytes != null) {
+                    url = App.ORIGIN + "/art/now?k=" + Integer.toHexString(Arrays.hashCode(bytes));
+                    flat = isFlat(bitmap);
+                }
+            }
+            if (url.isEmpty()) {
+                url = imageUrl(firstText(m, MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_ART_URI));
+                bytes = null;
             }
         }
-        String uri = firstText(m,
-                MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
-                MediaMetadata.METADATA_KEY_ART_URI,
-                MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
-        artUrl = imageUrl(uri);
+
+        if (url.equals(artUrl)) {
+            dropPending();
+            return;
+        }
+        boolean sameTrack = !track.isEmpty() && track.equals(artTrack);
+        if (sameTrack && !artUrl.isEmpty()) {
+            // This track already has a cover. A missing picture or a stand-in never replaces it,
+            // a real cover replaces a stand-in quickly, and any other change has to last a while.
+            if (url.isEmpty() || (flat && !artFlat)) {
+                dropPending();
+                return;
+            }
+            stage(bytes, url, flat, artFlat ? 200 : 1500);
+            return;
+        }
+        if (!sameTrack) {
+            // A new track: its cover is blank until its own picture arrives. The interface keeps
+            // the previous cover on screen during that moment and then crossfades.
+            artTrack = track;
+            artBytes = null;
+            artUrl = "";
+            artFlat = false;
+        }
+        if (url.isEmpty()) {
+            dropPending();
+            return;
+        }
+        // Give a stand-in a little time to be replaced by the real cover before showing it.
+        stage(bytes, url, flat, flat ? 2500 : 200);
+    }
+
+    private void stage(byte[] bytes, String url, boolean flat, long delay) {
+        if (url.equals(nextUrl)) {
+            return; // Already waiting for this one; do not restart the wait.
+        }
+        main.removeCallbacks(commitArt);
+        nextBytes = bytes;
+        nextUrl = url;
+        nextFlat = flat;
+        main.postDelayed(commitArt, delay);
+    }
+
+    private void dropPending() {
+        main.removeCallbacks(commitArt);
+        nextUrl = null;
+        nextBytes = null;
+    }
+
+    private void commitArt() {
+        synchronized (this) {
+            if (nextUrl == null) {
+                return;
+            }
+            artBytes = nextBytes;
+            artUrl = nextUrl;
+            artFlat = nextFlat;
+            nextUrl = null;
+            nextBytes = null;
+        }
+        changed();
+    }
+
+    /** True for pictures that are mostly one colour, such as an app logo on a plain background. */
+    private static boolean isFlat(Bitmap source) {
+        try {
+            Bitmap bitmap = source;
+            if (bitmap.getConfig() == Bitmap.Config.HARDWARE) {
+                bitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false);
+            }
+            if (bitmap == null) {
+                return false;
+            }
+            Bitmap small = Bitmap.createScaledBitmap(bitmap, 24, 24, true);
+            int[] pixels = new int[24 * 24];
+            small.getPixels(pixels, 0, 24, 0, 0, 24, 24);
+            int[] counts = new int[4096];
+            int most = 0;
+            for (int p : pixels) {
+                int key = (((p >> 20) & 0xF) << 8) | (((p >> 12) & 0xF) << 4) | ((p >> 4) & 0xF);
+                int n = ++counts[key];
+                if (n > most) {
+                    most = n;
+                }
+            }
+            return most > pixels.length * 0.55;
+        } catch (RuntimeException | OutOfMemoryError e) {
+            return false;
+        }
+    }
+
+    private static String trackKeyOf(MediaMetadata m) {
+        String title = firstText(m, MediaMetadata.METADATA_KEY_TITLE, MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
+        if (title.isEmpty()) {
+            return "";
+        }
+        return title + "\n" + firstText(m, MediaMetadata.METADATA_KEY_ARTIST,
+                MediaMetadata.METADATA_KEY_ALBUM_ARTIST, MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
     }
 
     private static byte[] encode(Bitmap source) {
@@ -306,6 +422,8 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
                 position = duration;
             }
             o.put("active", true);
+            o.put("source", "tv");
+            o.put("key", trackKeyOf(m));
             o.put("pkg", c.getPackageName());
             o.put("app", appLabel(c.getPackageName()));
             o.put("title", title);
@@ -379,8 +497,15 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
         }
     }
 
-    /** Sets the sleep timer: "off", "track" (pause when this track ends) or a number of minutes. */
-    synchronized void setSleep(String mode) {
+    synchronized long lastPlayingAt() {
+        return lastPlayingAt;
+    }
+
+    /**
+     * Sets the sleep timer: "off", "track" (pause when this track ends) or a number of minutes.
+     * {@code currentTrack} is the track on screen, which may be playing on a Sonos speaker.
+     */
+    synchronized void setSleep(String mode, String currentTrack) {
         main.removeCallbacks(sleepTask);
         sleepMode = "off";
         sleepAt = 0;
@@ -388,7 +513,7 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
         sleepTrack = "";
         if ("track".equals(mode)) {
             sleepMode = "track";
-            sleepTrack = trackKey();
+            sleepTrack = currentTrack == null ? "" : currentTrack;
             return;
         }
         int minutes;
@@ -416,7 +541,13 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
             sleepFired = true;
             l = listener;
         }
-        command("pause", 0);
+        // Pause whatever is playing, here on the TV and on Sonos.
+        MediaController c = controller;
+        PlaybackState s = c == null ? null : c.getPlaybackState();
+        if (s != null && s.getState() == PlaybackState.STATE_PLAYING) {
+            command("pause", 0);
+        }
+        SonosWatcher.get(app).pauseIfPlaying();
         if (l != null) {
             l.onMediaChanged();
         }
@@ -425,19 +556,26 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
     private String trackKey() {
         MediaController c = controller;
         MediaMetadata m = c == null ? null : c.getMetadata();
-        if (m == null) {
-            return "";
+        return m == null ? "" : trackKeyOf(m);
+    }
+
+    /** For "End of track": told about each track on screen, wherever it plays. */
+    synchronized void noteTrack(String key) {
+        if (!"track".equals(sleepMode) || key == null || key.isEmpty()) {
+            return;
         }
-        return firstText(m, MediaMetadata.METADATA_KEY_TITLE, MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
-                + "\n" + firstText(m, MediaMetadata.METADATA_KEY_ARTIST,
-                MediaMetadata.METADATA_KEY_ALBUM_ARTIST, MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+        if (sleepTrack.isEmpty()) {
+            sleepTrack = key; // Nothing was playing when it was set: this is the track to finish.
+        } else if (!key.equals(sleepTrack)) {
+            main.post(this::fireSleep);
+        }
     }
 
     private void changed() {
         Listener l;
         boolean playing;
-        boolean trackEnded = false;
         String pkg;
+        String key = "";
         synchronized (this) {
             l = listener;
             MediaController c = controller;
@@ -446,24 +584,16 @@ final class MediaWatcher implements MediaSessionManager.OnActiveSessionsChangedL
             pkg = c == null ? null : c.getPackageName();
             boolean justStarted = playing && !wasPlaying;
             wasPlaying = playing;
+            if (playing) {
+                lastPlayingAt = System.currentTimeMillis();
+                key = trackKey();
+            }
             if (justStarted) {
                 maybeBringPlayerForward(pkg);
             }
-            if ("track".equals(sleepMode)) {
-                String now = trackKey();
-                // Apps blank the details for a moment between tracks; wait for the next real one.
-                boolean real = !now.equals("\n") && !now.isEmpty();
-                if (real && (sleepTrack.isEmpty() || sleepTrack.equals("\n"))) {
-                    sleepTrack = now; // Nothing was playing when it was set: this is the track to finish.
-                } else {
-                    trackEnded = real && !now.equals(sleepTrack);
-                }
-            }
         }
-        if (trackEnded) {
-            fireSleep();
-            return;
-        }
+        // Apps blank the details for a moment between tracks; only real tracks count.
+        noteTrack(key);
         if (l != null) {
             l.onMediaChanged();
         }

@@ -45,19 +45,26 @@
   };
 
   var MAX_PINS = 4;
-  var FONTS = { clean: 'Clean', soft: 'Soft', elegant: 'Elegant' };
-  var ACCENTS = { amber: '#D9A441', rust: '#D97B5C', sage: '#9DB59A', sky: '#8FB3D9' };
+  /* Accent colours. "cover" takes its colour from the album that is playing; the rest are fixed,
+     chosen to sit well on the warm dark background. */
+  var ACCENTS = {
+    cover: { name: 'Cover' },
+    brass: { name: 'Brass', colour: '#D3A55A' },
+    clay: { name: 'Clay', colour: '#DB8B6E' },
+    sage: { name: 'Sage', colour: '#A8BE97' },
+    dusk: { name: 'Dusk', colour: '#97AFD3' },
+    ivory: { name: 'Ivory', colour: '#E6DCCB' }
+  };
+  var FALLBACK_ACCENT = '#D3A55A';
   /* Where the weather is for. A fixed place for now; there is no keyboard-friendly way to pick one yet. */
   var PLACE = { name: 'Halmstad', lat: 56.674, lon: 12.857 };
   var prefs = {
     autoOpen: store.get('autoOpen', true),
     idleMin: store.get('idleMin', 2),
-    font: store.get('font', 'clean'),
-    accent: store.get('accent', 'amber'),
+    accent: store.get('accent2', 'cover'),
     weather: store.get('weather', true)
   };
-  if (!FONTS[prefs.font]) { prefs.font = 'clean'; }
-  if (!ACCENTS[prefs.accent]) { prefs.accent = 'amber'; }
+  if (!ACCENTS[prefs.accent]) { prefs.accent = 'cover'; }
   var state = {
     view: 'home',
     returnView: 'home',
@@ -75,7 +82,10 @@
     awake: null,
     sleep: { mode: 'off', at: 0, minutes: 0 },
     lastFocus: {},
-    panelReturn: null
+    panelReturn: null,
+    coverAccent: null,
+    pausedAt: 0,
+    update: {}
   };
 
   /* ---------- Scaling: the layout is 1920x1080 and is fitted to whatever the TV reports ---------- */
@@ -109,7 +119,7 @@
     var root = scopeRoot();
     var pick = null;
     if (state.panel) {
-      pick = $('.opt[aria-pressed="true"]', root);
+      pick = $('.opt[aria-pressed="true"], .swatch[aria-pressed="true"]', root);
     } else if (state.view === 'home') {
       pick = $('#now [data-act="toggle"]');
       if (!pick || !isShown(pick)) { pick = $$('#now .pill.f').filter(isShown)[0] || null; }
@@ -331,9 +341,10 @@
     state.np = np;
     var key = np.active ? np.title + '\n' + (np.artist || '') : '';
 
+    // Music started from a phone (on the TV, or on a Sonos speaker): bring up the player.
     var startedNow = before && np.active && np.playing && !(before.active && before.playing);
     if (startedNow && prefs.autoOpen && state.visible && state.view === 'home' && !state.panel &&
-        isMusicApp(np.pkg) && Date.now() - state.lastCommandAt > 4000) {
+        (np.source === 'sonos' || isMusicApp(np.pkg)) && Date.now() - state.lastCommandAt > 4000) {
       show('player');
     }
 
@@ -350,9 +361,94 @@
 
     var newTrack = !!key && !!state.npKey && key !== state.npKey;
     state.npKey = key;
+    if (newTrack) { beginTrackChange(); }
     renderNow();
     if (newTrack) { announceTrack(); }
     updateAwake();
+  }
+
+  /* ---------- Changing track: the record slides into its sleeve, the new cover fades in over
+     the old one, and the record slides out again with the new label. ---------- */
+
+  var change = { at: 0, timer: 0 };
+
+  function beginTrackChange() {
+    change.at = Date.now();
+    stage.classList.add('changing');
+    clearTimeout(change.timer);
+    // If no cover arrives for the new track, settle on a blank sleeve rather than the old cover.
+    change.timer = setTimeout(function () {
+      if (art.pending === '') { showArt(''); } else { endTrackChange(); }
+    }, 2600);
+  }
+
+  function endTrackChange() {
+    clearTimeout(change.timer);
+    stage.classList.remove('changing');
+  }
+
+  var art = { url: null, pending: null, token: 0 };
+
+  /** Asks for a cover. Nothing on screen changes until the new picture has fully loaded. */
+  function setArt(url) {
+    url = url || '';
+    if (url === art.url) {
+      // Same cover as before (the next track on the same album, say): nothing to swap.
+      if (art.pending !== null) {
+        art.pending = null;
+        art.token++;
+        if (stage.classList.contains('changing')) {
+          setTimeout(endTrackChange, Math.max(0, 600 - (Date.now() - change.at)));
+        }
+      }
+      return;
+    }
+    if (url === art.pending) { return; }
+    art.pending = url;
+    var token = ++art.token;
+    if (!url) {
+      // A blank cover only replaces one when the track changes (handled by the change timer),
+      // or when nothing at all is playing any more.
+      if (!stage.classList.contains('changing') && !(state.np && state.np.active)) { showArt(''); }
+      return;
+    }
+    var probe = new Image();
+    probe.onload = function () {
+      if (token !== art.token) { return; }
+      // During a track change, wait until the record is tucked away before swapping.
+      var wait = stage.classList.contains('changing') ? Math.max(0, 480 - (Date.now() - change.at)) : 0;
+      setTimeout(function () { if (token === art.token) { showArt(url, probe); } }, wait);
+    };
+    probe.onerror = function () { if (token === art.token) { art.pending = null; } };
+    probe.src = url;
+  }
+
+  function showArt(url, loaded) {
+    art.url = url;
+    art.pending = null;
+    $$('.sleeve').forEach(function (sleeve) {
+      var layers = $$('img[data-art]', sleeve);
+      var front = layers.filter(function (img) { return img.classList.contains('top'); })[0] || layers[1];
+      var back = front === layers[0] ? layers[1] : layers[0];
+      if (!url) {
+        layers.forEach(function (img) { img.classList.remove('in'); });
+        return;
+      }
+      back.src = url;
+      var reveal = function () {
+        front.classList.remove('top');
+        back.classList.add('top', 'in');
+        // Once the new cover covers the old one, hide the old one underneath.
+        setTimeout(function () { if (!front.classList.contains('top')) { front.classList.remove('in'); } }, 750);
+      };
+      if (back.decode) { back.decode().then(reveal, reveal); } else { reveal(); }
+    });
+    $$('img[data-art-label]').forEach(function (img) {
+      if (url) { img.src = url; img.classList.add('in'); } else { img.classList.remove('in'); }
+    });
+    if (url && loaded) { colourFrom(loaded); } else { clearColour(); }
+    // Let the record slide back out a moment after the new cover has started to show.
+    setTimeout(endTrackChange, url ? 120 : 0);
   }
 
   /** A new track: let its title and artist rise into place rather than just switch. */
@@ -376,7 +472,6 @@
     });
   }
 
-  var lastArt = null;
   var lastFraction = 0;
 
   /** Moves the progress bars. While playing they glide for a second towards where the track
@@ -408,7 +503,7 @@
       title = 'Nothing playing';
       hint = 'Start something on your phone and it shows up here.';
     } else {
-      status = np.playing ? 'Now playing' : 'Paused';
+      status = (np.playing ? 'Now playing' : 'Paused') + (np.room ? ' · ' + np.room : '');
       title = np.title || '';
       artist = np.artist || '';
       source = [np.album, np.app].filter(function (x) { return x && x !== np.title; }).join(' · ');
@@ -426,23 +521,12 @@
     setAll('source', source);
     setAll('pos', position);
     setAll('dur', duration);
-    setAll('open-app', 'Open ' + ((mode === 'active' && np.app) || 'Spotify'));
+    var appName = mode === 'active' && np.app && np.app !== 'Sonos' && np.app !== 'Radio' ? np.app : 'Spotify';
+    setAll('open-app', 'Open ' + appName);
+    setAll('room', mode === 'active' && np.room ? 'Playing on ' + np.room : '');
+    $$('[data-room]').forEach(function (el) { el.hidden = !(mode === 'active' && np.room); });
     setBars(fraction, mode === 'active' && !!np.playing);
-
-    if (art !== lastArt) {
-      lastArt = art;
-      $$('img[data-np="art"]').forEach(function (img, index) {
-        // Each new cover fades in once it has loaded.
-        img.classList.remove('in');
-        img.onerror = function () { img.removeAttribute('src'); };
-        img.onload = function () {
-          img.classList.add('in');
-          if (index === 0) { colourFrom(img); }
-        };
-        if (art) { img.src = art; } else { img.removeAttribute('src'); }
-      });
-      if (!art) { clearColour(); }
-    }
+    setArt(art);
 
     // If the focused control just disappeared (music stopped, say), move to a sensible one.
     var active = document.activeElement;
@@ -465,6 +549,45 @@
     stage.style.removeProperty('--label');
     stage.style.removeProperty('--glow');
     setBackdrop('');
+  }
+
+  /** The cover's most characteristic colour, made bright enough to read on the dark background.
+      Picks the strongest hue by how much of the cover carries it and how saturated it is, so a
+      small red sticker on a grey cover still wins over the grey. Null for black-and-white covers. */
+  function vividFrom(img) {
+    var size = 24;
+    var canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, size, size);
+    var data = ctx.getImageData(0, 0, size, size).data;
+    var weight = [], hueX = [], hueY = [], sat = [];
+    for (var k = 0; k < 12; k++) { weight[k] = 0; hueX[k] = 0; hueY[k] = 0; sat[k] = 0; }
+    var total = 0;
+    for (var i = 0; i < data.length; i += 4) {
+      var r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+      var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min, l = (max + min) / 2;
+      if (d < 0.08 || l < 0.12 || l > 0.92) { continue; }
+      var s = d / (1 - Math.abs(2 * l - 1));
+      var h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h = h * 60; if (h < 0) { h += 360; }
+      var w = s * s * (1 - Math.abs(l - 0.5));
+      var bucket = Math.floor(h / 30) % 12;
+      weight[bucket] += w;
+      hueX[bucket] += Math.cos(h * Math.PI / 180) * w;
+      hueY[bucket] += Math.sin(h * Math.PI / 180) * w;
+      sat[bucket] += s * w;
+      total += w;
+    }
+    var best = 0;
+    for (k = 1; k < 12; k++) { if (weight[k] > weight[best]) { best = k; } }
+    if (total < 4 || weight[best] < 2) { return null; }
+    var hue = Math.atan2(hueY[best], hueX[best]) * 180 / Math.PI;
+    if (hue < 0) { hue += 360; }
+    var saturation = Math.max(0.42, Math.min(0.72, sat[best] / weight[best]));
+    // Blues and purples need more lightness than yellows to look equally bright.
+    var lightness = hue > 190 && hue < 300 ? 0.72 : 0.66;
+    return 'hsl(' + Math.round(hue) + ',' + Math.round(saturation * 100) + '%,' + Math.round(lightness * 100) + '%)';
   }
 
   /** Takes colour from the cover: a soft wash for behind the player, and a tint for the hero card. */
@@ -506,13 +629,19 @@
       stage.style.removeProperty('--label');
       stage.style.removeProperty('--glow');
     }
+    try { state.coverAccent = vividFrom(img); } catch (e) { state.coverAccent = null; }
+    applyLook();
   }
 
-  /* ---------- Look: typeface and accent colour ---------- */
+  /* ---------- Accent colour ---------- */
+
+  function accentNow() {
+    if (prefs.accent === 'cover') { return state.coverAccent || FALLBACK_ACCENT; }
+    return ACCENTS[prefs.accent].colour;
+  }
 
   function applyLook() {
-    Object.keys(FONTS).forEach(function (name) { stage.classList.toggle('font-' + name, name === prefs.font); });
-    stage.style.setProperty('--accent', ACCENTS[prefs.accent]);
+    stage.style.setProperty('--accent', accentNow());
   }
 
   /* ---------- Weather ---------- */
@@ -728,7 +857,7 @@
     var sub = [item.sub, minutesLeft(item.left)].filter(Boolean).join(' · ');
     var html = '<div class="poster">';
     if (item.poster) { html += '<img alt="" src="' + esc(item.poster) + '">'; }
-    else { html += '<div class="fallback">' + esc(item.title) + '</div>'; }
+    else { html += '<div class="fallback" style="background:' + tintFor(item.title || item.app) + '">' + esc(item.title) + '</div>'; }
     if (withTag && item.app) { html += '<div class="tag">' + esc(item.app) + '</div>'; }
     if (item.progress > 0) { html += '<div class="left"><i style="width:' + Math.round(Math.min(1, item.progress) * 100) + '%"></i></div>'; }
     html += '</div><div><div class="title">' + esc(item.title || item.app || '') + '</div>';
@@ -741,11 +870,20 @@
       img.onerror = function () {
         var fallback = document.createElement('div');
         fallback.className = 'fallback';
+        fallback.style.background = tintFor(item.title || item.app);
         fallback.textContent = item.title || item.app || '';
         img.replaceWith(fallback);
       };
     }
     return card;
+  }
+
+  /** A calm two-tone background for a poster that has no picture, the same for the same title. */
+  function tintFor(text) {
+    var hash = 0;
+    String(text || '').split('').forEach(function (c) { hash = (hash * 31 + c.charCodeAt(0)) | 0; });
+    var hue = Math.abs(hash) % 360;
+    return 'linear-gradient(140deg, hsl(' + hue + ',26%,30%), hsl(' + ((hue + 28) % 360) + ',22%,17%))';
   }
 
   function makeRow(id, heading, aside, cards) {
@@ -870,14 +1008,16 @@
       html += '</div></div>';
     }
 
-    html += '<div class="group" data-zone="font"><h2>Typeface</h2><div class="options">' +
-      Object.keys(FONTS).map(function (name) { return option('font', name, FONTS[name], prefs.font === name); }).join('') +
-      '</div></div>';
-
-    html += '<div class="group" data-zone="accent"><h2>Accent colour</h2><div class="options">' +
+    var check = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+    html += '<div class="group" data-zone="accent"><h2>Accent colour</h2>' +
+      '<div class="hint">' + (prefs.accent === 'cover' ? 'Follows the cover of what is playing.' : 'Used for progress, labels and highlights.') + '</div>' +
+      '<div class="swatches">' +
       Object.keys(ACCENTS).map(function (name) {
-        return '<button class="opt f" data-opt="accent:' + name + '" aria-pressed="' + (prefs.accent === name ? 'true' : 'false') +
-          '"><i class="dot" style="background:' + ACCENTS[name] + '"></i>' + name.charAt(0).toUpperCase() + name.slice(1) + '</button>';
+        var a = ACCENTS[name];
+        var chip = name === 'cover' ? '<i class="chip cover"><b></b>' + check + '</i>'
+          : '<i class="chip" style="background:' + a.colour + '">' + check + '</i>';
+        return '<button class="swatch f" data-opt="accent:' + name + '" aria-label="' + a.name + '" aria-pressed="' +
+          (prefs.accent === name ? 'true' : 'false') + '">' + chip + '<span>' + a.name + '</span></button>';
       }).join('') + '</div></div>';
 
     html += '<div class="group" data-zone="weather"><h2>Weather for ' + esc(PLACE.name) + '</h2><div class="options">' +
@@ -887,6 +1027,8 @@
     html += '<div class="group" data-zone="shortcuts"><h2>Shortcuts</h2><div class="options">' +
       '<button class="opt f" data-act="apps">All apps</button>' +
       '<button class="opt f" data-act="settings">TV settings</button></div></div>';
+
+    html += updateGroup();
 
     html += '<div class="group" data-zone="setup"><h2>Setup</h2>' +
       setupRow(!!status.nowPlayingAccess, 'Now playing',
@@ -913,8 +1055,86 @@
         again = $('[data-opt="' + focusedOpt + '"]', body) || $('[data-setup="' + focusedOpt + '"]', body) ||
           $('[data-act="' + focusedOpt + '"]', body);
       }
-      focus(again || $('.opt[aria-pressed="true"]', body) || $('.f', body));
+      focus(again || $('.opt[aria-pressed="true"], .swatch[aria-pressed="true"]', body) || $('.f', body));
     }
+  }
+
+  /* ---------- Updates from GitHub ---------- */
+
+  function updateGroup() {
+    var u = state.update || {};
+    var title, text, action, label, done = false, meter = '';
+    if (u.state === 'ready' && !u.mayInstall) {
+      title = 'Build ' + u.latest + ' is ready';
+      text = 'First allow TV Home to install apps: the button opens that setting.';
+      action = 'allow-install'; label = 'Open settings';
+    } else if (u.state === 'ready') {
+      title = 'Build ' + u.latest + ' is ready';
+      text = u.error ? u.error : (u.notes || 'A newer version of TV Home.');
+      action = 'install'; label = 'Install';
+    } else if (u.state === 'downloading') {
+      title = 'Downloading build ' + u.latest;
+      text = (u.progress || 0) + '%';
+      meter = '<span class="meter"><i style="width:' + (u.progress || 0) + '%"></i></span>';
+      action = 'none'; label = '…';
+    } else if (u.state === 'installing') {
+      title = 'Installing build ' + u.latest;
+      text = 'Confirm the question on the screen with OK.';
+      action = 'none'; label = '…';
+    } else if (u.state === 'checking') {
+      title = 'Checking for updates';
+      text = 'Looking at GitHub.';
+      action = 'none'; label = '…';
+    } else if (u.state === 'error') {
+      title = 'Could not update';
+      text = u.error || 'Something went wrong.';
+      action = 'check'; label = 'Try again';
+    } else {
+      title = 'Up to date';
+      text = 'TV Home build ' + (u.installed || '?') + '. New builds are found by themselves.';
+      action = 'check'; label = 'Check now'; done = false;
+    }
+    return '<div class="group" data-zone="updates"><h2>Updates</h2>' +
+      '<button class="setup-row f' + (done ? ' done' : '') + '" data-update="' + action + '"><span class="what"><b>' + esc(title) +
+      '</b><span>' + esc(text) + '</span>' + meter + '</span><span class="state">' + esc(label) + '</span></button></div>';
+  }
+
+  var lastUpdateSig = '';
+  function pollUpdate() {
+    var u = callJson('getUpdate', null);
+    if (!u) { return; }
+    state.update = u;
+    var sig = JSON.stringify(u);
+    if (sig === lastUpdateSig) { return; }
+    var wasReady = /"state":"ready"/.test(lastUpdateSig);
+    lastUpdateSig = sig;
+    $$('[data-act="update"]').forEach(function (el) { el.hidden = u.state !== 'ready'; });
+    if (u.state === 'ready' && !wasReady && state.view === 'home' && !state.panel) {
+      toast('A new version of TV Home is ready');
+    }
+    if (state.panel) {
+      var box = $('#panel [data-zone="updates"]');
+      if (box) {
+        var hadFocus = box.contains(document.activeElement);
+        box.outerHTML = updateGroup();
+        if (hadFocus) { focus($('#panel [data-zone="updates"] .f')); }
+      }
+    }
+    if (state.view === 'home' && !state.panel && document.activeElement && !isShown(document.activeElement)) {
+      focus(defaultFocus());
+    }
+  }
+
+  function runUpdate(action) {
+    if (action === 'install') {
+      call('installUpdate');
+      toast('Installing. Confirm on the screen with OK.');
+    } else if (action === 'allow-install') {
+      if (!call('openSettings', 'install')) { toast('This TV has no screen for that. Use the setup guide.'); }
+    } else if (action === 'check') {
+      call('checkUpdate', true);
+    }
+    setTimeout(pollUpdate, 300);
   }
 
   function openPanel() {
@@ -952,13 +1172,9 @@
     } else if (group === 'idle') {
       prefs.idleMin = parseInt(value, 10);
       store.set('idleMin', prefs.idleMin);
-    } else if (group === 'font' && FONTS[value]) {
-      prefs.font = value;
-      store.set('font', value);
-      applyLook();
     } else if (group === 'accent' && ACCENTS[value]) {
       prefs.accent = value;
-      store.set('accent', value);
+      store.set('accent2', value);
       applyLook();
     } else if (group === 'weather') {
       prefs.weather = value === 'on';
@@ -978,6 +1194,7 @@
   function activate(el) {
     var d = el.dataset;
     if (d.opt) { var parts = d.opt.split(':'); setOption(parts[0], parts[1]); return; }
+    if (d.update) { runUpdate(d.update); return; }
     if (d.input) { if (!call('openInput', d.input)) { toast('Could not switch input'); } return; }
     if (d.setup) {
       if (d.done === '1') { toast('Already on'); }
@@ -1002,6 +1219,9 @@
       case 'panel': openPanel(); break;
       case 'apps': closePanel(); show('allapps'); break;
       case 'settings': call('openSettings', 'system'); break;
+      case 'update':
+        if (state.update && state.update.mayInstall === false) { openPanel(); } else { runUpdate('install'); }
+        break;
       case 'music':
         var spotify = state.apps.filter(function (a) { return /^spotify/i.test(a.label); })[0];
         if (spotify) { launch(spotify.pkg); } else { show('allapps'); }
@@ -1091,6 +1311,7 @@
     pull();
     renderSleepLabel();
     loadWeather();
+    if (Date.now() % 4000 < 1000) { pollUpdate(); }
 
     var np = state.np || {};
     var idleFor = Date.now() - state.lastInput;
@@ -1120,6 +1341,7 @@
           break;
         case 'pause':
           state.visible = false;
+          state.pausedAt = Date.now();
           leaveAmbient();
           updateAwake();
           break;
@@ -1130,8 +1352,10 @@
           loadFeed();
           pull();
           loadWeather();
+          call('checkUpdate', false);
+          pollUpdate();
           if (state.panel) { renderPanel(); }
-          else if (state.view === 'home') {
+          else if (state.view === 'home' && Date.now() - state.pausedAt > 2000) {
             // Coming back from another app: Home settles into place instead of just appearing.
             var home = $('#home');
             home.classList.remove('arrive');
@@ -1181,6 +1405,7 @@
   pull();
   loadFeed();
   loadWeather();
+  pollUpdate();
   var first = call('takePendingView');
   if (first === 'player') { show('player'); } else { focus(defaultFocus()); }
   setInterval(tick, 1000);

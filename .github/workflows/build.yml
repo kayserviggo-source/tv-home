@@ -36,10 +36,13 @@ jobs:
           if-no-files-found: error
 
       # Puts the APK on the repository's Releases page, so it can be downloaded as a plain file.
+      # The newest release is what the app installed on the TV updates itself from.
+      # Its first line is shown on the TV as what is new.
       - name: Publish to Releases
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          git log -1 --pretty=%B | sed '/^Co-Authored-By/,$d' > notes.txt
           gh release create "build-${{ github.run_number }}" tv-home.apk \
             --title "Build ${{ github.run_number }}" \
-            --notes "Built from ${{ github.sha }}"
+            --notes-file notes.txt --latest

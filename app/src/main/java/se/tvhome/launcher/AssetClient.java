@@ -50,6 +50,9 @@ final class AssetClient extends WebViewClient {
             if (path.equals("/art/now")) {
                 return image(MediaWatcher.get(context).currentArt(), "image/jpeg", true);
             }
+            if (path.equals("/art/sonos")) {
+                return image(SonosWatcher.get(context).currentArt(), "image/jpeg", true);
+            }
             if (path.equals("/img")) {
                 return foreignImage(url.getQueryParameter("u"));
             }

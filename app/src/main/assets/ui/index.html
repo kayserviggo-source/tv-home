@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage" class="font-clean" data-view="home">
+<div id="stage" data-view="home">
 
   <!-- Colour taken from the current cover; shown behind the player and the clock screen -->
   <div id="backdrop" aria-hidden="true"><i></i><i></i></div>
@@ -20,6 +20,7 @@
         <span class="weather" data-weather hidden></span>
       </div>
       <div class="top-actions" data-zone="top">
+        <button class="pill f update-pill" data-act="update" hidden><i class="dot"></i><span>Update ready</span></button>
         <button class="round f" id="btn-apps" aria-label="All apps">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>
         </button>
@@ -36,10 +37,10 @@
             <div class="sleeve-wrap">
               <div class="record" aria-hidden="true">
                 <div class="disc"></div><div class="sheen"></div>
-                <div class="label"><img data-np="art" alt=""></div>
+                <div class="label"><img data-art-label alt=""></div>
                 <div class="ring"></div><div class="hub"></div>
               </div>
-              <div class="sleeve"><img data-np="art" alt=""></div>
+              <div class="sleeve"><img data-art alt=""><img data-art alt=""></div>
             </div>
             <div class="now-info">
               <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span></div>
@@ -82,10 +83,10 @@
       <div class="sleeve-wrap large">
         <div class="record" aria-hidden="true">
           <div class="disc"></div><div class="sheen"></div>
-          <div class="label"><img data-np="art" alt=""></div>
+          <div class="label"><img data-art-label alt=""></div>
           <div class="ring"></div><div class="hub"></div>
         </div>
-        <div class="sleeve"><img data-np="art" alt=""></div>
+        <div class="sleeve"><img data-art alt=""><img data-art alt=""></div>
       </div>
       <div class="player-info">
         <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span></div>
@@ -111,6 +112,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg><span data-sleep-label>Sleep timer · Off</span>
           </button>
           <button class="pill f" data-act="source-app"><span data-np="open-app">Open app</span></button>
+          <span class="room" data-room hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2.5"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/></svg><span data-np="room"></span></span>
         </div>
       </div>
     </div>
@@ -119,23 +121,27 @@
   <!-- Clock screen while music plays -->
   <section id="ambient" class="view">
     <div class="ambient-main">
-      <div>
+      <div class="ambient-clock">
         <div class="ambient-time" data-clock="time"></div>
         <div class="ambient-date"><span data-clock="date"></span><span class="weather" data-weather hidden></span></div>
       </div>
       <div class="ambient-now">
-        <div class="sleeve-wrap mini">
+        <div class="sleeve-wrap ambient-sleeve">
           <div class="record" aria-hidden="true">
             <div class="disc"></div><div class="sheen"></div>
-            <div class="label"><img data-np="art" alt=""></div>
+            <div class="label"><img data-art-label alt=""></div>
             <div class="ring"></div><div class="hub"></div>
           </div>
-          <div class="sleeve"><img data-np="art" alt=""></div>
+          <div class="sleeve"><img data-art alt=""><img data-art alt=""></div>
         </div>
         <div class="ambient-text">
+          <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span></div>
           <div class="ambient-title" data-np="title"></div>
           <div class="ambient-artist" data-np="artist"></div>
-          <div class="bar"><i data-np="bar"></i></div>
+          <div class="progress">
+            <div class="bar"><i data-np="bar"></i></div>
+            <div class="times"><span data-np="pos"></span><span data-np="dur"></span></div>
+          </div>
         </div>
       </div>
     </div>
