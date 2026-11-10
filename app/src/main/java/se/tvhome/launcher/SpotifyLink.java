@@ -51,7 +51,7 @@ import java.util.concurrent.Executors;
 final class SpotifyLink {
 
     /** From the Spotify app made for TV Home at developer.spotify.com. Not a secret. */
-    static final String CLIENT_ID = "";
+    static final String CLIENT_ID = "71d60766508642a18c964d63213b40a6";
     static final String REDIRECT = "https://kayserviggo-source.github.io/tv-home/spotify.html";
     private static final String SCOPES =
             "user-read-recently-played user-top-read playlist-read-private playlist-read-collaborative user-library-read";

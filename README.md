@@ -132,7 +132,7 @@ Spotify only lets an app read someone's music with its own key, so TV Home needs
 1. At developer.spotify.com/dashboard, create an app with the redirect URI
    `https://kayserviggo-source.github.io/tv-home/spotify.html` and the Web API ticked.
    (Development mode is enough; Spotify requires the owner to have Premium.)
-2. Put its Client ID in `CLIENT_ID` in `SpotifyLink.java`.
+2. Put its Client ID in `CLIENT_ID` in `SpotifyLink.java` (done for this TV).
 3. Turn on GitHub Pages for this repository from `main`, folder `/docs`. `docs/spotify.html`
    is the page the phone lands on after approving; it passes the answer to the TV on the
    home network.
