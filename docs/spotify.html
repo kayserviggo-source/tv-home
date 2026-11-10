@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV Home</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+    box-sizing: border-box; background: #1A1613; color: #EFE7DA; font: 18px/1.5 system-ui, sans-serif; text-align: center; }
+  h1 { font-size: 26px; margin: 0 0 8px; }
+  p { margin: 0; color: #C4B8A6; }
+</style>
+</head>
+<body>
+<div><h1 id="title">Connecting to your TV…</h1><p id="text">Keep this page open for a moment.</p></div>
+<script>
+  // Spotify sends the phone here after you agree. This page passes the answer on to TV Home on
+  // your TV, whose address on the home network is in "state". Nothing is stored or sent anywhere else.
+  (function () {
+    var query = new URLSearchParams(location.search);
+    var title = document.getElementById('title');
+    var text = document.getElementById('text');
+    var where = '';
+    try { where = atob((query.get('state') || '').replace(/-/g, '+').replace(/_/g, '/')); } catch (e) { where = ''; }
+    var parts = where.split(':');
+    var ip = parts[0] || '', port = parts[1] || '';
+    // Only addresses on a home network are allowed, so this page cannot be used to send anyone elsewhere.
+    var local = /^(10\.\d+|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d+\.\d+$/.test(ip) && /^\d{2,5}$/.test(port);
+    if (!local) {
+      title.textContent = 'Start again from the TV';
+      text.textContent = 'This page only finishes a sign-in started from TV Home.';
+      return;
+    }
+    if (query.get('error')) {
+      title.textContent = 'Not connected';
+      text.textContent = 'Spotify did not give access. You can try again from the TV.';
+    }
+    location.replace('http://' + ip + ':' + port + '/spotify' + location.search);
+  })();
+</script>
+</body>
+</html>

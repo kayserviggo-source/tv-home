@@ -3,6 +3,8 @@ name: Build APK
 on:
   push:
     branches: [main]
+    # The Spotify sign-in page (GitHub Pages) and notes do not need a new build.
+    paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
 permissions:

@@ -47,7 +47,7 @@
         </div>
         <div class="music-info">
           <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span><span class="lossless" data-lossless hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/></svg>Lossless</span></div>
-          <div class="music-title" data-np="htitle" data-long="22"></div>
+          <div class="music-title" data-np="htitle" data-long="27"></div>
           <div class="music-artist" data-np="artist"></div>
           <div class="music-hint" data-np="hint"></div>
           <div class="bar"><i data-np="bar"></i></div>
@@ -95,7 +95,7 @@
       </div>
       <div class="player-info">
         <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span><span class="lossless" data-lossless hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/></svg>Lossless</span></div>
-        <h1 class="player-title" data-np="title" data-long="18"></h1>
+        <h1 class="player-title" data-np="title" data-long="23"></h1>
         <div class="player-artist" data-np="artist"></div>
         <div class="player-source" data-np="source"></div>
         <div class="progress">
@@ -141,13 +141,34 @@
         </div>
         <div class="ambient-text">
           <div class="eyebrow"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-np="status"></span><span class="lossless" data-lossless hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/></svg>Lossless</span></div>
-          <div class="ambient-title" data-np="title" data-long="18"></div>
+          <div class="ambient-title" data-np="title" data-long="25"></div>
           <div class="ambient-artist" data-np="artist"></div>
           <div class="bar"><i data-np="bar"></i></div>
         </div>
       </div>
     </div>
     <div class="ambient-hint">Press any button to go back</div>
+  </section>
+
+  <!-- Connecting TV Home to Spotify: a QR code for the phone -->
+  <section id="connect" class="view">
+    <div class="connect-main">
+      <div class="qr" id="qr" aria-hidden="true"></div>
+      <div class="connect-text">
+        <div class="eyebrow">Spotify</div>
+        <h1 class="connect-title">Connect your Spotify</h1>
+        <ol class="steps">
+          <li>Scan the code with your phone, on the same Wi-Fi as the TV.</li>
+          <li>Log in to Spotify if it asks, and tap <b>Agree</b>.</li>
+          <li>Your music shows up on Home.</li>
+        </ol>
+        <div class="connect-status" id="connect-status"></div>
+        <div class="controls" data-zone="connect">
+          <button class="pill f glass" data-act="connect-retry" hidden>Try again</button>
+          <button class="pill f glass" data-act="connect-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- All apps -->
@@ -178,6 +199,7 @@
 </div>
 
 <script src="mock.js"></script>
+<script src="qrcode.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

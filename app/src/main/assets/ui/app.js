@@ -70,7 +70,9 @@
   };
   /* Written once a day by a scheduled Claude task that uses the Spotify connector: a greeting,
      a line for each part of the day, and music picked for it. Public, so it holds nothing private. */
-  var LANDING_URL = 'https://raw.githubusercontent.com/kayserviggo-source/tv-home/landing/landing.json';
+  // Off until it is decided where that file may live (it names the owner and their music).
+  // Example: 'https://raw.githubusercontent.com/kayserviggo-source/tv-home/landing/landing.json'
+  var LANDING_URL = '';
   if (!ACCENTS[prefs.accent]) { prefs.accent = 'cover'; }
   var state = {
     view: 'home',
@@ -88,6 +90,9 @@
     shelfLayers: {},        // each app's shelf, built once and kept
     landing: store.get('landing', null),
     landingSig: '',
+    spotify: {},            // TV Home's own Spotify sign-in and the owner's music
+    spotifySig: '',
+    connectStarted: false,
     lastMoveAt: 0,
     shelfFocus: {},         // the poster last focused in each app's shelf
     dockKey: null,          // the dock tile last focused
@@ -304,9 +309,20 @@
     var inShelf = !!current.closest('#shelf');
     var inTop = !!current.closest('.topbar');
     if (inDock && direction === 'up') {
-      setShelf(shelfOwner(current), true);
+      var owner = shelfOwner(current);
+      // An app with nothing to browse: Up goes straight to the landing page.
+      if (owner.indexOf('empty:') === 0 && !(isSpotify(owner.slice(6)) && state.spotify.configured && !state.spotify.connected)) {
+        owner = 'landing';
+      }
+      setShelf(owner, true);
       var entry = shelfEntry();
       if (entry) { focus(entry); } else { bump(current, 'up'); }
+      return true;
+    }
+    if (inShelf && direction === 'up' && state.shelf !== 'landing') {
+      // Up from an app's shelf: back to the landing page.
+      setShelf('landing', true);
+      focus(landingEntry() || dockFocus());
       return true;
     }
     if (inShelf && direction === 'down') {
@@ -381,6 +397,7 @@
     if (state.moving) { stopMoving(); return; }
     if (state.panel) { closePanel(); return; }
     if (state.view === 'ambient') { leaveAmbient(); return; }
+    if (state.view === 'connect') { closeConnect(); return; }
     if (state.view === 'home') {
       var active = document.activeElement;
       if (state.shelf !== 'landing' || !active || !active.closest('#shelf-music')) { goLanding(); }
@@ -583,8 +600,10 @@
       var part = landingPart();
       status = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
       title = 'Nothing playing';
-      homeTitle = part.greeting || greeting() + (part.name ? ', ' + part.name : '');
-      hint = part.note || 'Start some music on your phone and it shows up here.';
+      var name = part.name || ((state.spotify.library || {}).name || '');
+      homeTitle = part.greeting || greeting() + (name ? ', ' + name : '');
+      hint = part.note || (landingPicks().length && !part.picks.length ? 'Pick up where you left off.'
+        : 'Start some music on your phone and it shows up here.');
     } else {
       status = (np.playing ? 'Now playing' : 'Paused') + (np.room ? ' · ' + np.room : '');
       title = homeTitle = np.title || '';
@@ -1132,6 +1151,14 @@
     return out;
   }
 
+  /** What the landing page offers with nothing playing: Claude's picks for now, or else what
+      was played recently on Spotify. */
+  function landingPicks() {
+    var picks = landingPart().picks;
+    if (picks.length) { return picks; }
+    return ((state.spotify.library || {}).jump || []).filter(function (p) { return p && p.title && p.link; });
+  }
+
   /** Picks from the other parts of the day, for the Spotify shelf. */
   function otherPicks() {
     var d = state.landing;
@@ -1157,7 +1184,7 @@
   function renderPicks() {
     picksPart = partName();
     var box = $('#picks');
-    var picks = landingPart().picks.slice(0, 5);
+    var picks = landingPicks().slice(0, 5);
     var sig = JSON.stringify(picks);
     if (box._sig === sig) { return; }
     box._sig = sig;
@@ -1177,7 +1204,7 @@
   var landingAsked = 0;
   function loadLanding(force) {
     if (window.MockLanding !== undefined) { setLanding(window.MockLanding); return; }
-    if (!window.fetch || (!force && Date.now() - landingAsked < 30 * 60 * 1000)) { return; }
+    if (!LANDING_URL || !window.fetch || (!force && Date.now() - landingAsked < 30 * 60 * 1000)) { return; }
     landingAsked = Date.now();
     fetch(LANDING_URL + '?t=' + Math.floor(Date.now() / 600000), { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -1196,6 +1223,77 @@
     loadContent();
   }
 
+  /* ---------- TV Home's own Spotify connection ---------- */
+
+  function loadSpotify() {
+    var sp = callJson('getSpotify', null);
+    if (!sp) { return; }
+    var before = state.spotify;
+    state.spotify = sp;
+    var sig = JSON.stringify(sp.library || {});
+    if (sig !== state.spotifySig || before.connected !== sp.connected || before.configured !== sp.configured) {
+      state.spotifySig = sig;
+      renderPicks();
+      renderNow();
+      state.contentSig = null;
+      loadContent();
+      if (state.panel) { renderPanel(); }
+    }
+    if (state.view === 'connect') { renderConnect(); }
+  }
+
+  function openConnect() {
+    closePanel();
+    state.connectStarted = true;
+    $('#qr').innerHTML = '';
+    $('#qr')._url = '';
+    call('spotifyConnect');
+    show('connect');
+    loadSpotify();
+    renderConnect();
+  }
+
+  function closeConnect() {
+    if (state.spotify.state === 'waiting') { call('spotifyCancel'); }
+    state.connectStarted = false;
+    goLanding();
+  }
+
+  /** The connect screen follows the sign-in: QR code while waiting, then done or what went wrong. */
+  function renderConnect() {
+    var sp = state.spotify;
+    var status = $('#connect-status');
+    var retry = $('#connect [data-act="connect-retry"]');
+    var qr = $('#qr');
+    if (sp.state === 'connected' && state.connectStarted) {
+      state.connectStarted = false;
+      toast('Spotify is connected');
+      goLanding();
+      return;
+    }
+    if (sp.state === 'waiting' && sp.url) {
+      if (qr._url !== sp.url && window.qrcode) {
+        var code = window.qrcode(0, 'L');
+        code.addData(sp.url);
+        code.make();
+        qr.innerHTML = code.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+        qr._url = sp.url;
+      }
+      status.textContent = 'Waiting for your phone…';
+      retry.hidden = true;
+      return;
+    }
+    if (!sp.configured) {
+      status.textContent = 'Spotify is not set up for TV Home yet.';
+    } else {
+      status.textContent = sp.message || 'Not connected.';
+    }
+    qr.innerHTML = '';
+    qr._url = '';
+    retry.hidden = !sp.configured;
+    if (!isShown(document.activeElement)) { focus(defaultFocus()); }
+  }
+
   /* ---------- What each app has lined up ---------- */
 
   /** An app's shelf: Continue watching first, then the app's own rows. Spotify's starts with
@@ -1204,12 +1302,19 @@
     var groups = [];
     var square = musicLike(pkg);
     if (isSpotify(pkg)) {
+      // The owner's own music, read by TV Home from Spotify. Spotify's rows for the TV's home
+      // screen are left out: they are general suggestions, not the owner's music.
+      var lib = state.spotify.library || {};
       var picks = landingPart().picks;
       if (picks.length) {
         groups.push({ title: partName() === 'night' ? 'For tonight' : 'For this ' + partName(), items: picks.map(pickItem), square: true });
       }
+      if (lib.jump && lib.jump.length) { groups.push({ title: 'Jump back in', items: lib.jump.map(pickItem), square: true }); }
+      if (lib.playlists && lib.playlists.length) { groups.push({ title: 'Your playlists', items: lib.playlists.map(pickItem), square: true }); }
+      if (lib.artists && lib.artists.length) { groups.push({ title: 'Your top artists', items: lib.artists.map(pickItem), square: true, round: true }); }
       var more = otherPicks();
       if (more.length) { groups.push({ title: 'More for today', items: more.map(pickItem), square: true }); }
+      return groups;
     }
     var next = state.content.watchNext.filter(function (item) { return item.pkg === pkg; });
     if (next.length) { groups.push({ title: 'Continue watching', items: next.slice(0, 12), square: square }); }
@@ -1225,12 +1330,13 @@
   function shelfOwner(el) {
     if (!el || !el.closest('.dock')) { return state.shelf; }
     var pkg = el.dataset.pkg;
-    if (!pkg || (musicLike(pkg) && !isSpotify(pkg))) { return 'landing'; }
-    if (!state.status.tvListings && !isSpotify(pkg)) {
+    if (!pkg) { return 'landing'; } // All apps, Control Centre
+    if (!state.status.tvListings && !isSpotify(pkg) && !musicLike(pkg)) {
       var app = appByPkg(pkg);
-      return app && app.tv ? 'ask:' + pkg : 'landing';
+      if (app && app.tv) { return 'ask:' + pkg; }
     }
-    return contentFor(pkg).length ? pkg : 'landing';
+    // Every app gets its own shelf; one with nothing to show gets its card.
+    return contentFor(pkg).length ? pkg : 'empty:' + pkg;
   }
 
   var shelfTimer = 0;
@@ -1299,7 +1405,7 @@
       layer.classList.add('on');
       shown.forEach(function (other) { if (other !== layer) { other.classList.remove('on'); } });
       landing.classList.remove('on');
-      var first = $('.poster', layer);
+      var first = $('[data-poster]', layer);
       washFromPoster(first ? first.dataset.poster || '' : null);
     }
     updateBackdrop();
@@ -1307,6 +1413,12 @@
   }
 
   function buildShelf(layer, owner) {
+    if (owner.indexOf('empty:') === 0) {
+      layer.innerHTML = appCardHtml(owner.slice(6));
+      var banner = $('img', layer);
+      if (banner) { banner.onerror = function () { banner.remove(); }; }
+      return;
+    }
     if (owner.indexOf('ask:') === 0) {
       var app = appByPkg(owner.slice(4));
       layer.innerHTML = '<div class="shelf-ask"><h2>See what’s next in ' + esc(app ? app.label : 'your apps') + '</h2>' +
@@ -1318,7 +1430,7 @@
     contentFor(owner).forEach(function (group, g) {
       html += '<div class="pgroup"><h3>' + esc(group.title) + '</h3><div class="items">';
       group.items.forEach(function (item, i) {
-        html += posterHtml(item, owner + ':' + g + ':' + (item.id != null ? item.id : i), group.square);
+        html += posterHtml(item, owner + ':' + g + ':' + (item.id != null ? item.id : i), group.square, group.round);
       });
       html += '</div></div>';
     });
@@ -1336,10 +1448,34 @@
     });
   }
 
-  function posterHtml(item, key, square) {
+  /** The shelf of an app with nothing to show: its banner, a line, and a way in. */
+  function appCardHtml(pkg) {
+    var app = appByPkg(pkg) || { label: 'This app', pkg: pkg };
+    var banner = app.banner ? imageUrl('banner', pkg) : '';
+    var text, buttons = '';
+    if (isSpotify(pkg)) {
+      var sp = state.spotify;
+      if (sp.connected) {
+        text = 'Your music is on its way from Spotify.';
+      } else if (sp.configured) {
+        text = 'Connect your Spotify to see what you’ve been playing and your own playlists here.';
+        buttons = '<button class="pill f glass" data-act="spotify-connect">Connect Spotify</button>';
+      } else {
+        text = 'Your own music shows up here once TV Home is connected to Spotify.';
+      }
+    } else {
+      text = 'Nothing to continue in ' + app.label + ' yet. When it has something for you, it shows up here.';
+    }
+    buttons += '<button class="pill f glass" data-open="' + esc(pkg) + '">Open ' + esc(app.label) + '</button>';
+    return '<div class="app-card"><div class="app-card-art" style="--tint:' + tintFor(app.label) + '" data-poster="' + esc(banner) + '">' +
+      (banner ? '<img alt="" decoding="async" src="' + esc(banner) + '">' : '<span>' + esc(app.label) + '</span>') + '</div>' +
+      '<div class="app-card-text"><h2>' + esc(app.label) + '</h2><p>' + esc(text) + '</p><div class="controls">' + buttons + '</div></div></div>';
+  }
+
+  function posterHtml(item, key, square, round) {
     var title = item.title || item.app || '';
     var sub = [item.sub, minutesLeft(item.left)].filter(Boolean).join(' · ');
-    var html = '<button class="poster f' + (square ? ' square' : '') + '" data-key="' + esc(key) + '" data-intent="' + esc(item.intent || '') +
+    var html = '<button class="poster f' + (square ? ' square' : '') + (round ? ' round' : '') + '" data-key="' + esc(key) + '" data-intent="' + esc(item.intent || '') +
       '" data-owner="' + esc(item.pkg || '') + '" data-poster="' + esc(item.poster || '') + '"' +
       (item.link ? ' data-link="' + esc(item.link) + '"' : '') + ' aria-label="' + esc(title) + '"><div class="art">';
     html += item.poster ? '<img alt="" decoding="async" src="' + esc(item.poster) + '">'
@@ -1374,7 +1510,8 @@
     var allowed = !!state.status.tvListings;
     var watchNext = allowed ? callJson('getWatchNext', []) : [];
     var previews = allowed ? callJson('getPreviews', []) : [];
-    var sig = JSON.stringify([watchNext, previews, allowed, state.landingSig]);
+    var sig = JSON.stringify([watchNext, previews, allowed, state.landingSig, state.spotifySig,
+      !!state.spotify.connected, !!state.spotify.configured]);
     if (sig === state.contentSig) { return; }
     state.contentSig = sig;
     state.content = { watchNext: watchNext, previews: previews };
@@ -1382,7 +1519,7 @@
     var active = document.activeElement;
     var inShelf = active && active.closest && active.closest('#shelf .shelf-app');
     var owner = active && active.closest && active.closest('#dock') ? shelfOwner(active) : state.shelf;
-    if (owner !== 'landing' && owner.indexOf('ask:') !== 0 && !contentFor(owner).length) { owner = 'landing'; }
+    if (owner !== 'landing' && owner.indexOf(':') < 0 && !contentFor(owner).length) { owner = 'empty:' + owner; }
     dropShelves(owner === state.shelf ? owner : null);
     if (owner === state.shelf && owner !== 'landing') {
       // Same app: refill its shelf in place and keep focus on the same poster.
@@ -1407,7 +1544,7 @@
       var tiles = $$('#dock .app[data-pkg]');
       for (var i = 0; i < tiles.length; i++) {
         var owner = shelfOwner(tiles[i]);
-        if (owner !== 'landing' && owner.indexOf('ask:') !== 0 && !state.shelfLayers[owner]) {
+        if (owner !== 'landing' && owner.indexOf(':') < 0 && !state.shelfLayers[owner]) {
           layerFor(owner);
           prebuildTimer = setTimeout(step, 500);
           return;
@@ -1469,6 +1606,16 @@
       });
       html += '</div></div>';
     }
+
+    var sp = state.spotify;
+    var spName = (sp.library || {}).name || '';
+    html += '<div class="group" data-zone="spotify"><h2>Spotify</h2>' + (
+      !sp.configured ? '<div class="setup-row static"><span class="what"><b>Not set up yet</b><span>TV Home needs its own key from ' +
+        'developer.spotify.com to read your music. See the setup notes.</span></span></div>'
+      : sp.connected ? '<button class="setup-row f" data-act="spotify-disconnect"><span class="what"><b>Connected' + (spName ? ' as ' + esc(spName) : '') +
+        '</b><span>What you play and your playlists are on Home.</span></span><span class="state">Disconnect</span></button>'
+      : '<button class="setup-row f" data-act="spotify-connect"><span class="what"><b>Connect Spotify</b><span>Show what you have been playing ' +
+        'and your playlists on Home. You approve it on your phone.</span></span><span class="state">Connect</span></button>') + '</div>';
 
     html += '<div class="group" data-zone="auto"><h2>When music starts from your phone</h2><div class="options">' +
       option('auto', 'on', 'Open the player', prefs.autoOpen) +
@@ -1690,6 +1837,7 @@
       if (!call('openSpotify', d.link)) { toast('Could not open Spotify'); }
       return;
     }
+    if (d.open) { launch(d.open); return; }
     if (d.intent !== undefined && el.classList.contains('poster')) {
       if (!call('openIntent', d.intent, d.owner || '')) { toast('Could not open that'); }
       return;
@@ -1703,6 +1851,14 @@
       case 'back10': media('seek', Math.max(0, (np.position || 0) - 10000)); break;
       case 'fwd10': media('seek', (np.position || 0) + 10000); break;
       case 'player': show('player'); break;
+      case 'spotify-connect': openConnect(); break;
+      case 'connect-retry': $('#qr').innerHTML = ''; call('spotifyConnect'); loadSpotify(); break;
+      case 'connect-cancel': closeConnect(); break;
+      case 'spotify-disconnect':
+        call('spotifyDisconnect');
+        toast('Spotify disconnected');
+        loadSpotify();
+        break;
       case 'home': goHome(); break;
       case 'panel': openPanel(); break;
       case 'apps': closePanel(); show('allapps'); break;
@@ -1812,6 +1968,7 @@
     pull();
     renderSleepLabel();
     loadWeather();
+    if (state.view === 'connect') { loadSpotify(); }
     if (Date.now() % 4000 < 1000) { pollUpdate(); }
 
     var np = state.np || {};
@@ -1833,6 +1990,7 @@
       switch (name) {
         case 'media': pull(); break;
         case 'content': loadContent(); break;
+        case 'spotify': loadSpotify(); break;
         case 'hold':
           // The TV side saw OK held down (more reliable than timing it here).
           noteInput();
@@ -1847,6 +2005,7 @@
         case 'menu':
           noteInput();
           if (state.view === 'ambient') { leaveAmbient(); }
+          else if (state.view === 'connect') { closeConnect(); }
           else if (state.panel) { closePanel(); }
           else { openPanel(); }
           break;
@@ -1862,6 +2021,8 @@
           noteInput();
           loadApps();
           call('refreshContent');
+          call('refreshSpotify');
+          loadSpotify();
           loadContent();
           loadLanding(false);
           pull();
@@ -1919,6 +2080,7 @@
   $('#home').classList.add('on', 'arrive');
   renderClock();
   loadApps();
+  loadSpotify();
   renderPicks();
   pull();
   loadContent();

@@ -74,6 +74,9 @@ public class MainActivity extends Activity {
         media.start();
         SonosWatcher.get(this).resume();
         Updater.get(this).check(false);
+        SpotifyLink spotify = SpotifyLink.get(this);
+        spotify.setListener(() -> emit("spotify", ""));
+        spotify.refreshLibrary(false);
         // If Android has dropped the Home button service, switch it back on (when allowed to).
         web.removeCallbacks(mendHomeButton);
         web.postDelayed(mendHomeButton, 3000);
@@ -97,6 +100,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         media.setListener(null);
+        SpotifyLink.get(this).setListener(null);
         web.destroy();
         super.onDestroy();
     }

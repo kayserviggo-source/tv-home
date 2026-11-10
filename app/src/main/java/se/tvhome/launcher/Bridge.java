@@ -199,6 +199,33 @@ final class Bridge {
         });
     }
 
+    /* ---------- TV Home's own Spotify sign-in (see SpotifyLink) ---------- */
+
+    @JavascriptInterface
+    public String getSpotify() {
+        return SpotifyLink.get(activity).snapshot();
+    }
+
+    @JavascriptInterface
+    public void spotifyConnect() {
+        SpotifyLink.get(activity).startConnect();
+    }
+
+    @JavascriptInterface
+    public void spotifyCancel() {
+        SpotifyLink.get(activity).cancelConnect();
+    }
+
+    @JavascriptInterface
+    public void spotifyDisconnect() {
+        SpotifyLink.get(activity).disconnect();
+    }
+
+    @JavascriptInterface
+    public void refreshSpotify() {
+        SpotifyLink.get(activity).refreshLibrary(false);
+    }
+
     /**
      * Opens a Spotify link (spotify:playlist:..., or an open.spotify.com address) in the Spotify
      * app, falling back to just opening the app.

@@ -31,6 +31,7 @@
     { pkg: 'com.google.android.youtube.tv', label: 'YouTube', tv: true, banner: true, art: banner('YouTube', '#2B1614', '#EFE7DA') },
     { pkg: 'com.netflix.ninja', label: 'Netflix', tv: true, banner: true, art: banner('Netflix', '#1B1414', '#EFE7DA') },
     { pkg: 'se.svt.android.svtplay', label: 'SVT Play', tv: true, banner: true, art: banner('SVT Play', '#14233A', '#EFE7DA') },
+    { pkg: 'sample.hbo', label: 'HBO Max', tv: true, banner: true, art: banner('HBO Max', '#2A1F4A', '#EFE7DA') },
     { pkg: 'sample.films', label: 'Film Club', tv: true, banner: true, art: banner('Film Club', '#34504A', '#EFE7DA') },
     { pkg: 'sample.radio', label: 'Radio', tv: true, banner: true, art: banner('Radio', '#5B2A3A', '#EFE7DA') },
     { pkg: 'sample.photos', label: 'Photos', tv: true, banner: false },
@@ -94,6 +95,28 @@
         ['Sleepy Strings', 'Playlist', '#1B2233', '#8FA3C7'], ['Ambient Nights', 'Playlist', '#14161C', '#6E7B8C']]) }
     }
   } : null;
+
+  // TV Home's own Spotify sign-in: ?spotify=connected (default), disconnected or off. Invented music.
+  var spotifyMode = param('spotify', 'connected');
+  function mus(list, kind) {
+    return list.map(function (p, i) {
+      return { title: p[0], subtitle: p[1], link: 'spotify:' + kind + ':sample' + i + p[0].length, image: p[2] ? square(p[2], p[3]) : '' };
+    });
+  }
+  var library = {
+    name: 'Viggo', at: Date.now(),
+    jump: mus([['Sena kvällar', 'Nattljus', '#23324F', '#E3A08C'], ['Söndagsjazz', 'Playlist · Viggo', '#3A2430', '#E8C9A9'],
+      ['Kustvägen', 'Ljusgång', '#1F3A3A', '#9CC7B8'], ['Pluggmusik', 'Playlist · Viggo', '#2F4250', '#C9D7DF'],
+      ['Morgonkaffe', 'Playlist · Viggo', '#7A5A3E', '#EAD9B8'], ['Vinterhav', 'Nattljus', '#5B2A3A', '#E3A08C']], 'album'),
+    playlists: [{ title: 'Liked Songs', subtitle: 'Your library', link: 'spotify:collection:tracks', image: '' }].concat(
+      mus([['Söndagsjazz', 'Playlist · Viggo', '#3A2430', '#E8C9A9'], ['Pluggmusik', 'Playlist · Viggo', '#2F4250', '#C9D7DF'],
+        ['Klätterpass', 'Playlist · Viggo', '#4A2A22', '#F0B98E'], ['Morgonkaffe', 'Playlist · Viggo', '#7A5A3E', '#EAD9B8']], 'playlist')),
+    artists: mus([['Nattljus', 'Artist', '#23324F', '#E3A08C'], ['Ljusgång', 'Artist', '#1F3A3A', '#9CC7B8'], ['Hamnen', 'Artist', '#5E7A64', '#F0E6CF']], 'artist')
+  };
+  var spotify = {
+    state: spotifyMode === 'off' ? 'off' : spotifyMode, message: '', url: '',
+    configured: spotifyMode !== 'off', connected: spotifyMode === 'connected', library: spotifyMode === 'connected' ? library : {}
+  };
 
   // A sample reading, so the preview does not depend on the network.
   if (param('weather', '1') === '1') { window.MockWeather = { temp: 6.4, code: 3, day: false }; }
@@ -196,6 +219,18 @@
     installUpdate: function () { log.push('install'); update.state = 'installing'; },
     keepAwake: function (on) { log.push('awake ' + on); },
     refreshContent: function () { log.push('refresh content'); },
+    getSpotify: function () { return JSON.stringify(spotify); },
+    spotifyConnect: function () {
+      log.push('spotify connect');
+      spotify.state = 'waiting'; spotify.message = '';
+      spotify.url = 'http://192.168.10.23:41827/s';
+      if (param('connectok', '0') === '1') {
+        setTimeout(function () { spotify.state = 'connected'; spotify.connected = true; spotify.url = ''; spotify.library = library; window.TVHome.emit('spotify', ''); }, 3000);
+      }
+    },
+    spotifyCancel: function () { log.push('spotify cancel'); if (spotify.state === 'waiting') { spotify.state = spotify.connected ? 'connected' : 'disconnected'; spotify.url = ''; } },
+    spotifyDisconnect: function () { log.push('spotify disconnect'); spotify.connected = false; spotify.state = 'disconnected'; spotify.library = {}; },
+    refreshSpotify: function () { log.push('refresh spotify'); },
     openSpotify: function (link) { log.push('spotify ' + link); return true; },
     fixHomeButton: function () { log.push('fix home'); return param('fix', '1') === '1'; }
   };

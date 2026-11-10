@@ -10,11 +10,16 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
   greeting with the date and music picked for the time of day. Move along the dock and the
   shelf shows what the app in focus has lined up (Spotify: your picks and Spotify's own rows;
   Netflix, YouTube, SVT Play: Continue watching and the app's rows), and the screen takes its
-  colours from the poster in focus. What is playing stays in the top left corner. Up goes into
-  the shelf, Down back to the dock, Back to the landing page.
-- **Picks from Claude.** The landing page can show a greeting, a line for the part of the day
-  and Spotify picks written by a scheduled Claude task with the Spotify connector. The TV reads
-  them from `LANDING_URL` in `app.js`; without that file it shows its own greeting.
+  colours from the poster in focus. What is playing stays in the top left corner. From the
+  dock, Up goes into the app's shelf and Up again back to the landing page (Back works too).
+  An app with nothing to share (or not signed in) gets a card with its banner and an Open
+  button rather than an empty shelf.
+- **Your Spotify.** TV Home signs in to Spotify itself (Control Centre → Spotify → Connect, then
+  approve on your phone) and shows your own music: Jump back in, your playlists, your top
+  artists, and your name in the greeting. Spotify's rows for TV home screens are left out:
+  they are general suggestions, not yours. The sign-in and the music stay on the TV.
+- **Picks from Claude (off).** The landing page can also show picks written by a scheduled
+  Claude task (`LANDING_URL` in `app.js`); it is off until there is a private place for them.
 - **Now playing.** Shows the current track from Spotify (or any app that plays media): cover,
   title, artist, progress, and play/pause/skip. It reads this from Android's media sessions,
   so it needs no Spotify login.
@@ -119,6 +124,21 @@ adb shell settings put secure accessibility_enabled 1
 ```
 
 Press Home on the remote. Control Centre → Setup shows which of the three permissions are on.
+
+### Spotify (one time)
+
+Spotify only lets an app read someone's music with its own key, so TV Home needs one:
+
+1. At developer.spotify.com/dashboard, create an app with the redirect URI
+   `https://kayserviggo-source.github.io/tv-home/spotify.html` and the Web API ticked.
+   (Development mode is enough; Spotify requires the owner to have Premium.)
+2. Put its Client ID in `CLIENT_ID` in `SpotifyLink.java`.
+3. Turn on GitHub Pages for this repository from `main`, folder `/docs`. `docs/spotify.html`
+   is the page the phone lands on after approving; it passes the answer to the TV on the
+   home network.
+
+Then on the TV: Control Centre → Spotify → Connect, and scan the code with a phone on the
+same Wi-Fi.
 
 ## Going back
 
