@@ -1630,6 +1630,16 @@
       option('clockdate', 'on', 'Show', prefs.clockDate) +
       option('clockdate', 'off', 'Hide', !prefs.clockDate) + '</div></div>';
 
+    // Evening dimming: a dark layer over the whole TV, following the sun.
+    var dim = callJson('getDim', {});
+    var dimLevel = dim.level || 0;
+    var dimNote = dim.running === false ? 'Needs the Home button to be on (see Setup).'
+      : 'Fades in from sunset' + (dim.sunset ? ' (' + dim.sunset + ' today)' : '') + ' and lifts at sunrise' +
+        (dim.sunrise ? ' (' + dim.sunrise + ')' : '') + '.';
+    html += '<div class="group" data-zone="dim"><h2>Dim after sunset</h2><div class="sub">' + esc(dimNote) + '</div><div class="options">' +
+      option('dim', '0', 'Off', dimLevel === 0) + option('dim', '1', 'A little', dimLevel === 1) +
+      option('dim', '2', 'More', dimLevel === 2) + option('dim', '3', 'Most', dimLevel === 3) + '</div></div>';
+
     var check = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
     html += '<div class="group" data-zone="accent"><h2>Look</h2>' +
       '<div class="sub">' + (prefs.accent === 'cover' ? 'Accent colour: follows the cover of what is playing' : 'Accent colour') + '</div>' +
@@ -1797,6 +1807,9 @@
       prefs.accent = value;
       store.set('accent2', value);
       applyLook();
+    } else if (group === 'dim') {
+      call('setDim', +value, PLACE.lat, PLACE.lon);
+      if (+value > 0) { toast('Showing how dim it gets after sunset'); }
     } else if (group === 'clockdate') {
       prefs.clockDate = value === 'on';
       store.set('clockDate', prefs.clockDate);

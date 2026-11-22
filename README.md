@@ -45,6 +45,11 @@ screen's ads and recommendation rows with a calm layout centred on what is playi
   of five fixed colours; the player and clock screen take their background from the cover.
 - **Updates.** The app checks this repository's Releases every few hours, downloads a newer
   build by itself, and offers to install it (Android asks for confirmation on the TV).
+- **Dim after sunset.** Control Centre → Dim after sunset (A little, More, Most). A dark,
+  see-through layer over everything on the TV fades in from just before sunset in Halmstad
+  until the end of dusk, and lifts the same way at sunrise. The TV does not let apps turn its
+  backlight down, so this darkens the picture rather than the backlight. It is drawn by the
+  Home button's service, so it needs that to be on.
 - **Weather.** Temperature and conditions beside the clock, from open-meteo.com. The place is
   set in `PLACE` at the top of `app.js`.
 - **Control Centre.** Sleep timer, HDMI inputs, look, TV settings, and setup status. The Menu

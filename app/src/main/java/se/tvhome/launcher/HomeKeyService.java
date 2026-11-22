@@ -5,7 +5,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Color;
+import android.graphics.PixelFormat;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.view.WindowManager;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.SystemClock;
@@ -46,11 +52,82 @@ public class HomeKeyService extends AccessibilityService {
     };
     private boolean listening;
 
+    /* ---------- Evening dimming (see Dimmer): a dark see-through layer over everything ---------- */
+
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private View dimLayer;
+    private long previewUntil;
+    private final Runnable dimTick = new Runnable() {
+        @Override
+        public void run() {
+            updateDim(false);
+            main.removeCallbacks(this);
+            main.postDelayed(this, 60 * 1000);
+        }
+    };
+    /** Control Centre changed the setting: show the new level for a few seconds, then follow the sun. */
+    private final BroadcastReceiver dimRequests = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            previewUntil = intent.getBooleanExtra("preview", false) ? SystemClock.uptimeMillis() + 4000 : 0;
+            updateDim(true);
+            main.removeCallbacks(dimTick);
+            main.postDelayed(dimTick, previewUntil > 0 ? 4200 : 60 * 1000);
+        }
+    };
+
+    private void updateDim(boolean quick) {
+        Dimmer.Setting setting = Dimmer.read(this);
+        float target = SystemClock.uptimeMillis() < previewUntil
+                ? Dimmer.strength(setting.level) : Dimmer.now(setting, System.currentTimeMillis());
+        if (target < 0.01f) {
+            if (dimLayer != null) {
+                final View layer = dimLayer;
+                dimLayer = null;
+                layer.animate().alpha(0f).setDuration(quick ? 500 : 4000).withEndAction(() -> {
+                    try {
+                        ((WindowManager) getSystemService(WINDOW_SERVICE)).removeView(layer);
+                    } catch (RuntimeException ignored) {
+                        // Already gone.
+                    }
+                }).start();
+            }
+            return;
+        }
+        if (dimLayer == null) {
+            View layer = new View(this);
+            layer.setBackgroundColor(Color.BLACK);
+            layer.setAlpha(0f);
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT);
+            try {
+                ((WindowManager) getSystemService(WINDOW_SERVICE)).addView(layer, lp);
+                dimLayer = layer;
+            } catch (RuntimeException e) {
+                return; // Android refused the layer; nothing to dim with.
+            }
+        }
+        // Over the schedule the change is slow enough not to be noticed; a preview is quick.
+        dimLayer.animate().cancel();
+        dimLayer.animate().alpha(target).setDuration(quick ? 500 : 20000).withEndAction(null).start();
+    }
+
     @Override
     protected void onServiceConnected() {
         App.setHomeWanted(this, true);
         findStockHomes();
         if (!listening) {
+            IntentFilter dim = new IntentFilter(Dimmer.ACTION_DIM);
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(dimRequests, dim, App.PERMISSION_INTERNAL, null, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(dimRequests, dim, App.PERMISSION_INTERNAL, null);
+            }
+            main.post(dimTick);
             IntentFilter filter = new IntentFilter(App.ACTION_OPEN);
             if (Build.VERSION.SDK_INT >= 33) {
                 registerReceiver(openRequests, filter, App.PERMISSION_INTERNAL, null, Context.RECEIVER_NOT_EXPORTED);
@@ -155,7 +232,21 @@ public class HomeKeyService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        main.removeCallbacks(dimTick);
+        if (dimLayer != null) {
+            try {
+                ((WindowManager) getSystemService(WINDOW_SERVICE)).removeView(dimLayer);
+            } catch (RuntimeException ignored) {
+                // Already gone.
+            }
+            dimLayer = null;
+        }
         if (listening) {
+            try {
+                unregisterReceiver(dimRequests);
+            } catch (IllegalArgumentException ignored) {
+                // Already gone.
+            }
             try {
                 unregisterReceiver(openRequests);
             } catch (IllegalArgumentException ignored) {

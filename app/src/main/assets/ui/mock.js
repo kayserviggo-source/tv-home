@@ -96,6 +96,8 @@
     }
   } : null;
 
+  var dimLevel = 0;
+
   // TV Home's own Spotify sign-in: ?spotify=connected (default), disconnected or off. Invented music.
   var spotifyMode = param('spotify', 'connected');
   function mus(list, kind) {
@@ -219,6 +221,8 @@
     installUpdate: function () { log.push('install'); update.state = 'installing'; },
     keepAwake: function (on) { log.push('awake ' + on); },
     refreshContent: function () { log.push('refresh content'); },
+    getDim: function () { return JSON.stringify({ level: dimLevel, sunset: '15:38', sunrise: '08:12', amount: 0, running: true }); },
+    setDim: function (level) { dimLevel = level; log.push('dim ' + level); },
     getSpotify: function () { return JSON.stringify(spotify); },
     spotifyConnect: function () {
       log.push('spotify connect');

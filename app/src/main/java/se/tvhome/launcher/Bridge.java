@@ -199,6 +199,28 @@ final class Bridge {
         });
     }
 
+    /* ---------- Evening dimming (see Dimmer) ---------- */
+
+    /** The level, today's sunset and the next sunrise, and how dim it is right now. */
+    @JavascriptInterface
+    public String getDim() {
+        org.json.JSONObject o = Dimmer.describe(activity);
+        try {
+            o.put("running", HomeButton.isRunning(activity));
+        } catch (org.json.JSONException ignored) {
+            // Leave it out.
+        }
+        return o.toString();
+    }
+
+    /** Saves the level (0 off to 3 strong) and shows it for a few seconds. */
+    @JavascriptInterface
+    public void setDim(int level, double lat, double lon) {
+        Dimmer.write(activity, level, lat, lon);
+        Intent change = new Intent(Dimmer.ACTION_DIM).setPackage(activity.getPackageName()).putExtra("preview", level > 0);
+        activity.sendBroadcast(change, App.PERMISSION_INTERNAL);
+    }
+
     /* ---------- TV Home's own Spotify sign-in (see SpotifyLink) ---------- */
 
     @JavascriptInterface
