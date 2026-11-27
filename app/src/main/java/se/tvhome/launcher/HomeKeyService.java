@@ -183,6 +183,9 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
         if (event.getKeyCode() != KeyEvent.KEYCODE_HOME) {
+            if (isArrow(event.getKeyCode())) {
+                KeyJournal.note(this, "keys-from-remote", event, null);
+            }
             return false;
         }
         if (App.crashedRecently(this)) {
@@ -193,6 +196,11 @@ public class HomeKeyService extends AccessibilityService {
             return openHome("home");
         }
         return true;
+    }
+
+    static boolean isArrow(int code) {
+        return code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
+                || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT;
     }
 
     @Override

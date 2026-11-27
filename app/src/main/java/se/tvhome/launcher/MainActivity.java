@@ -19,6 +19,9 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private boolean okHeld;
+    /** Longest an arrow may repeat before the home screen stops following it (see dispatchKeyEvent). */
+    private static final long ARROW_REPEAT_MAX_MS = 2500;
+    private boolean arrowRunaway;
     private Bridge bridge;
     private MediaWatcher media;
 
@@ -127,6 +130,27 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         int code = event.getKeyCode();
+        if (HomeKeyService.isArrow(code)) {
+            // Sometimes the TV never hears an arrow being let go, and Android then repeats it on
+            // its own until another button is pressed. Nobody holds an arrow this long on the home
+            // screen, so past that point the repeats are ignored. Presses and releases go in the
+            // key diary, to find out where the release gets lost.
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                arrowRunaway = false;
+                KeyJournal.note(this, "keys-on-home", event, null);
+            } else if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (event.getEventTime() - event.getDownTime() > ARROW_REPEAT_MAX_MS) {
+                    if (!arrowRunaway) {
+                        arrowRunaway = true;
+                        KeyJournal.note(this, "keys-on-home", event, "still repeating: ignored from here");
+                    }
+                    return true;
+                }
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                KeyJournal.note(this, "keys-on-home", event, arrowRunaway ? "released after a runaway" : null);
+                arrowRunaway = false;
+            }
+        }
         // The remote's OK button reaches the page as a plain Enter key, whatever the TV calls it.
         if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER
                 || code == KeyEvent.KEYCODE_ENTER
