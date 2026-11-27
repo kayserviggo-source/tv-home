@@ -29,7 +29,7 @@ final class Posters {
     private static final int MAX_DOWNLOAD = 12 * 1024 * 1024;
     private static final long DISK_DAYS = 14;
 
-    private static final LruCache<String, byte[]> MEMORY = new LruCache<String, byte[]>(16 * 1024 * 1024) {
+    private static final LruCache<String, byte[]> MEMORY = new LruCache<String, byte[]>(8 * 1024 * 1024) {
         @Override
         protected int sizeOf(String key, byte[] value) {
             return value.length;

@@ -292,6 +292,15 @@
     if (best) { focus(best); } else { bump(current, direction); }
   }
 
+  /** While the remote is in use, the decorations hold still (see "Keeping the TV light" in the
+      styles); they start again a few seconds after the last press. */
+  var stillTimer = 0;
+  function holdStill() {
+    stage.classList.add('busy');
+    clearTimeout(stillTimer);
+    stillTimer = setTimeout(function () { stage.classList.remove('busy'); }, 5000);
+  }
+
   /** Nothing further that way: the item gives a small nudge, so the press is not lost. */
   function bump(el, direction) {
     var name = 'bump-' + direction;
@@ -1372,6 +1381,14 @@
       $('#shelf').appendChild(layer);
       buildShelf(layer, owner);
       state.shelfLayers[owner] = layer;
+      state.shelfOrder = (state.shelfOrder || []).filter(function (o) { return o !== owner; });
+      state.shelfOrder.push(owner);
+      // Keep the last few, so going back and forth is instant without filling the TV's memory.
+      while (state.shelfOrder.length > 4) {
+        var old = state.shelfOrder.shift();
+        var oldLayer = state.shelfLayers[old];
+        if (old !== state.shelf && oldLayer && oldLayer.parentNode) { oldLayer.parentNode.removeChild(oldLayer); delete state.shelfLayers[old]; }
+      }
     }
     return layer;
   }
@@ -1531,7 +1548,6 @@
       setShelf(owner, true);
       if (inShelf) { focus(shelfEntry() || dockFocus()); }
     }
-    schedulePrebuild();
   }
 
   /** Builds the other apps' shelves while the remote rests, so the first visit is smooth too. */
@@ -1921,6 +1937,7 @@
       else if (key !== 'ArrowUp' && !e.repeat) { stopMoving(); press = { swallow: true }; }
       return;
     }
+    holdStill();
     if (e.repeat && /^Arrow/.test(key)) {
       if (Date.now() - state.lastMoveAt < 120) { return; }
     }

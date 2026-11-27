@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
         // If Android has dropped the Home button service, switch it back on (when allowed to).
         web.removeCallbacks(mendHomeButton);
         web.postDelayed(mendHomeButton, 3000);
+        web.resumeTimers();
         web.onResume();
         web.requestFocus();
         emit("resume", "");
@@ -94,6 +95,9 @@ public class MainActivity extends Activity {
         SonosWatcher.get(this).pause();
         emit("pause", "");
         web.onPause();
+        // Stop the page's clocks too while another app has the screen: TV Home should cost
+        // the TV nothing then. (Media, Sonos and the sleep timer live on the Android side.)
+        web.pauseTimers();
         super.onPause();
     }
 

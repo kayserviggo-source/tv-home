@@ -54,9 +54,10 @@ img { display: block; }
 /* Colour from the cover that is playing (or the poster in focus on Home). Each layer is a
    48-pixel picture, blurred once when it is drawn and stretched over the screen. */
 #backdrop { position: absolute; left: 0; top: 0; right: 0; bottom: 0; opacity: 0; transition: opacity 0.8s ease; }
-#backdrop canvas { position: absolute; left: -8%; top: -8%; width: 116%; height: 116%; opacity: 0; transition: opacity 1.4s ease; animation: breathe 50s ease-in-out infinite alternate; animation-play-state: paused; will-change: transform, opacity; }
-/* The colour drifts very slowly while music plays, and holds still otherwise. */
-.playing #backdrop canvas, #stage[data-view="ambient"] #backdrop canvas { animation-play-state: running; }
+#backdrop canvas { position: absolute; left: -8%; top: -8%; width: 116%; height: 116%; opacity: 0; transition: opacity 1.4s ease; }
+/* The colour drifts very slowly on the clock screen only; elsewhere it holds still, so the TV
+   does not redraw the whole screen for it. */
+#stage[data-view="ambient"] #backdrop canvas { animation: breathe 50s ease-in-out infinite alternate; }
 #backdrop canvas.on { opacity: 0.62; }
 #backdrop::after { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: linear-gradient(180deg, rgba(26, 22, 19, 0.42), rgba(26, 22, 19, 0.82)); }
 #stage[data-view="home"] #backdrop, #stage[data-view="player"] #backdrop, #stage[data-view="ambient"] #backdrop { opacity: 1; }
@@ -110,7 +111,8 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 .progress { margin-top: auto; }
 .bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .bar.thick { height: 6px; border-radius: 3px; }
-.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0); transition: transform 1s linear; will-change: transform; }
+/* The bar steps once a second instead of gliding: a glide meant redrawing the screen all the time. */
+.bar i { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0); }
 .bar i.jump { transition: transform 0.35s var(--ease); }
 .times { margin-top: 8px; display: flex; justify-content: space-between; font-size: 20px; font-weight: 500; color: var(--text3); }
 .controls { margin-top: 12px; display: flex; align-items: center; }
@@ -476,3 +478,10 @@ svg .stroke { fill: none; stroke-width: 2.5; }
 
 #toast { position: absolute; left: 50%; bottom: 60px; z-index: 9; transform: translate3d(-50%, 20px, 0); padding: 14px 26px; border-radius: 28px; background: var(--text); color: var(--ground); font-size: 22px; font-weight: 600; opacity: 0; transition: opacity 0.25s ease, transform 0.35s var(--ease); pointer-events: none; }
 #toast.on { opacity: 1; transform: translate3d(-50%, 0, 0); }
+
+/* ---------- Keeping the TV light ----------
+   This TV redraws the whole screen for any moving thing, at a cost of about half a processor
+   core. So the decorations (the turning label, the sheen, the equaliser bars) hold still while
+   the remote is in use, and wherever they cannot be seen, and run again once things are calm. */
+.busy .eq i, .busy .record .label, .busy .record .sheen { animation-play-state: paused !important; }
+.mini:not(.on) .eq i, .app:not(.sounding) .eqbadge .eq i { animation: none; }
