@@ -76,6 +76,8 @@ public class HomeKeyService extends AccessibilityService {
         }
     };
 
+    private float dimTarget = 0f;
+
     private void updateDim(boolean quick) {
         Dimmer.Setting setting = Dimmer.read(this);
         float target = SystemClock.uptimeMillis() < previewUntil
@@ -107,13 +109,17 @@ public class HomeKeyService extends AccessibilityService {
             try {
                 ((WindowManager) getSystemService(WINDOW_SERVICE)).addView(layer, lp);
                 dimLayer = layer;
+                dimTarget = 0f;
             } catch (RuntimeException e) {
                 return; // Android refused the layer; nothing to dim with.
             }
         }
-        // Over the schedule the change is slow enough not to be noticed; a preview is quick.
+        // Most minutes nothing has changed (the night level is steady): leave the layer alone then,
+        // so the TV does not redraw the screen for it. A change fades in over a few seconds.
+        if (!quick && Math.abs(target - dimTarget) < 0.005f) return;
+        dimTarget = target;
         dimLayer.animate().cancel();
-        dimLayer.animate().alpha(target).setDuration(quick ? 500 : 20000).withEndAction(null).start();
+        dimLayer.animate().alpha(target).setDuration(quick ? 500 : 3000).withEndAction(null).start();
     }
 
     @Override
